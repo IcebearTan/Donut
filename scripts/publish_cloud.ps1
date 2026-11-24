@@ -5,41 +5,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "=== [1/4] Building Portal frontend in local WSL2 (tsc + vite) ===" -ForegroundColor Cyan
-wsl -d OpenClaw -- bash -lc '
-  set -euo pipefail
-  export PATH="$HOME/.npm-global/bin:$PATH"
-  BUILD_DIR="$HOME/portal-fe-build"
-  mkdir -p "$BUILD_DIR"
-  cp /mnt/d/OpenClaw/portal/frontend/package.json "$BUILD_DIR/"
-  cp /mnt/d/OpenClaw/portal/frontend/tsconfig.json "$BUILD_DIR/"
-  cp /mnt/d/OpenClaw/portal/frontend/vite.config.ts "$BUILD_DIR/"
-  cp /mnt/d/OpenClaw/portal/frontend/index.html "$BUILD_DIR/"
-  rm -rf "$BUILD_DIR/src" "$BUILD_DIR/public"
-  cp -r /mnt/d/OpenClaw/portal/frontend/src "$BUILD_DIR/src"
-  cp -r /mnt/d/OpenClaw/portal/frontend/public "$BUILD_DIR/public"
-  cd "$BUILD_DIR"
-  pnpm build
-  rm -rf /mnt/d/OpenClaw/portal/frontend/dist
-  cp -r "$BUILD_DIR/dist" /mnt/d/OpenClaw/portal/frontend/dist
-  systemctl --user restart couple-portal.service 2>/dev/null || true
-'
-if ($LASTEXITCODE -ne 0) { throw "Frontend build failed." }
-
-Write-Host "=== [2/4] Packing clean Portal release bundle (no data/secrets) ===" -ForegroundColor Cyan
+Write-Host "=== [1-2/4] Building Portal frontend & packing clean release bundle in WSL2 ===" -ForegroundColor Cyan
 $bundle = "D:\OpenClaw\portal-release.tar.gz"
-wsl -d OpenClaw -- bash -lc '
-  set -euo pipefail
-  STAGE="$HOME/portal-release-stage"
-  rm -rf "$STAGE"
-  mkdir -p "$STAGE/frontend"
-  cp -r /mnt/d/OpenClaw/portal/backend "$STAGE/backend"
-  rm -rf "$STAGE/backend/data" "$STAGE/backend/__pycache__" "$STAGE/backend/app/__pycache__"
-  cp -r /mnt/d/OpenClaw/portal/frontend/dist "$STAGE/frontend/dist"
-  tar -czf /mnt/d/OpenClaw/portal-release.tar.gz -C "$STAGE" .
-  ls -lh /mnt/d/OpenClaw/portal-release.tar.gz
-'
-if ($LASTEXITCODE -ne 0) { throw "Packing bundle failed." }
+wsl -d OpenClaw -- bash /mnt/d/OpenClaw/portal/scripts/build_portal_bundle.sh
+if ($LASTEXITCODE -ne 0) { throw "Frontend build or bundle packing failed." }
 
 Write-Host "=== [3/4] Uploading bundle to $CloudHost (with auto-retry) ===" -ForegroundColor Cyan
 $uploaded = $false
