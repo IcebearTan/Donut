@@ -67,8 +67,12 @@ for ($i = 1; $i -le 6; $i++) {
 if (-not $deployed) { throw "Remote deploy failed." }
 
 Write-Host "=== Verifying public HTTPS endpoint ===" -ForegroundColor Green
-$pubOut = curl.exe -sS --max-time 8 $HealthUrl 2>&1
-if ($LASTEXITCODE -eq 0) {
+$prevPref = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$pubOut = & curl.exe -sS --max-time 8 $HealthUrl 2>&1
+$pubCode = $LASTEXITCODE
+$ErrorActionPreference = $prevPref
+if ($pubCode -eq 0) {
     Write-Host $pubOut -ForegroundColor Green
 } else {
     Write-Host "[WARN] Local public HTTPS check did not complete ($pubOut) - cloud service itself is active & healthy." -ForegroundColor Yellow
