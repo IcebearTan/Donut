@@ -1,0 +1,9 @@
+{
+  "name": "Donut · 我们的空间",
+  "short_name": "Donut",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#18181b",
+  "description": "双人专属生活空间与个人 AI 陪伴助手"
+}

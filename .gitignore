@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/data/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Secrets & build artifacts
+.env
+*.env
+*.tmp
+*.tar.gz
+*.log
+.DS_Store
