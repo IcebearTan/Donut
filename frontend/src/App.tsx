@@ -86,11 +86,9 @@ export function App() {
     }
   }
 
-  async function handleNewSession() {
+  function handleNewSession() {
     if (streaming) return
-    const res = await api.createSession('新对话')
-    setSessions((prev) => [res.session, ...prev])
-    setActiveSessionId(res.session.id)
+    setActiveSessionId(null)
     setMessages([])
   }
 

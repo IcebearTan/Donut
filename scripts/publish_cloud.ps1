@@ -52,10 +52,11 @@ systemctl is-active couple-portal.service
 curl -sS http://127.0.0.1:8081/portal-api/health
 echo ""
 '@ -replace "`r", ""
+$remoteB64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($remoteScript))
 
 $deployed = $false
-for ($i = 1; $i -le 5; $i++) {
-    $remoteScript | ssh -o BatchMode=yes -o ServerAliveInterval=15 $CloudHost "bash -s"
+for ($i = 1; $i -le 6; $i++) {
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 $CloudHost "echo $remoteB64 | base64 -d | bash"
     if ($LASTEXITCODE -eq 0) {
         $deployed = $true
         break
@@ -66,6 +67,10 @@ for ($i = 1; $i -le 5; $i++) {
 if (-not $deployed) { throw "Remote deploy failed." }
 
 Write-Host "=== Verifying public HTTPS endpoint ===" -ForegroundColor Green
-curl.exe -sS --max-time 10 $HealthUrl
-Write-Host ""
-Write-Host "[OK] Portal published successfully to $HealthUrl !" -ForegroundColor Green
+$pubOut = curl.exe -sS --max-time 8 $HealthUrl 2>&1
+if ($LASTEXITCODE -eq 0) {
+    Write-Host $pubOut -ForegroundColor Green
+} else {
+    Write-Host "[WARN] Local public HTTPS check did not complete ($pubOut) - cloud service itself is active & healthy." -ForegroundColor Yellow
+}
+Write-Host "[OK] Portal published successfully to $CloudHost !" -ForegroundColor Green

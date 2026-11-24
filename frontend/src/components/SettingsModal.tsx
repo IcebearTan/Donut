@@ -10,7 +10,7 @@ interface Props {
   onClose: () => void
 }
 
-const EMOJI_CHOICES = ['🍩', '🐻', '🐱', '🐰', '🦊', '✨', '🌙', '🌿']
+const EMOJI_CHOICES = ['🍩', '🐻', '🐱', '🐰', '🦊', '🍓', '🍑', '✨', '🌙', '🌿', '☕', '🫶']
 
 export function SettingsModal({
   user,
