@@ -12,25 +12,29 @@ if ($LASTEXITCODE -ne 0) { throw "Frontend build or bundle packing failed." }
 
 Write-Host "=== [3/4] Uploading bundle to $CloudHost (with auto-retry) ===" -ForegroundColor Cyan
 $uploaded = $false
-for ($i = 1; $i -le 5; $i++) {
-    $bytes = [System.IO.File]::ReadAllBytes($bundle)
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "ssh.exe"
-    $psi.Arguments = "-o BatchMode=yes -o ServerAliveInterval=15 $CloudHost `"cat > /tmp/portal-release.tar.gz`""
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardInput = $true
-    $psi.RedirectStandardError = $true
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
-    $proc.StandardInput.BaseStream.Flush()
-    $proc.StandardInput.Close()
-    $err = $proc.StandardError.ReadToEnd()
-    $proc.WaitForExit()
-    if ($proc.ExitCode -eq 0) {
-        $uploaded = $true
-        break
+for ($i = 1; $i -le 6; $i++) {
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($bundle)
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "ssh.exe"
+        $psi.Arguments = "-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 $CloudHost `"cat > /tmp/portal-release.tar.gz`""
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardError = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $proc.StandardInput.BaseStream.Flush()
+        $proc.StandardInput.Close()
+        $err = $proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -eq 0) {
+            $uploaded = $true
+            break
+        }
+        Write-Host "SSH upload attempt $i failed ($err), retrying..." -ForegroundColor Yellow
+    } catch {
+        Write-Host "SSH upload attempt $i failed ($($_.Exception.Message)), retrying..." -ForegroundColor Yellow
     }
-    Write-Host "SSH upload attempt $i failed ($err), retrying..." -ForegroundColor Yellow
     Start-Sleep -Seconds 2
 }
 Remove-Item $bundle -Force -ErrorAction SilentlyContinue
