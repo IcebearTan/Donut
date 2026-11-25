@@ -376,18 +376,13 @@ body {
 .chat-scroll {
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-
-/* Hide heavy scrollbar rails & edge shadows on mobile/touch viewports so bubbles are never overlapped */
-@media (max-width: 1023px), (pointer: coarse) {
-  .chat-scroll {
-    scrollbar-width: none;
-  }
-  .chat-scroll::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-    display: none;
-  }
+.chat-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* Markdown typography */

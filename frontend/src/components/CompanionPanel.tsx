@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  Activity,
   BookOpen,
   Compass,
-  FolderArchive,
   FolderKanban,
   Loader2,
   MessageCircle,
@@ -56,12 +54,14 @@ function formatRelativeTime(ts: number | null): string {
 
 function formatLiveTool(name: string): string {
   const low = name.toLowerCase()
-  if (low.includes('notion')) return '正在查询 Notion'
+  if (low.includes('notion')) return '正在查阅 Notion'
   if (low.includes('memory') || low.includes('wiki')) return '正在翻阅记忆'
   if (low.includes('search') || low.includes('web')) return '正在联网检索'
+  if (low.includes('exec') || low.includes('bash') || low.includes('shell'))
+    return '正在整理文件'
   if (low.includes('read') || low.includes('write') || low.includes('edit'))
-    return '正在读写项目记忆'
-  return `正在调用 ${name}`
+    return '正在整理笔记'
+  return `正在处理中`
 }
 
 export function CompanionPanel({
@@ -81,7 +81,6 @@ export function CompanionPanel({
   onEditProject,
   onSelectProject,
   onDistillActive,
-  onOpenVault,
 }: Props) {
   const [elapsedSec, setElapsedSec] = useState(0)
 
@@ -102,7 +101,7 @@ export function CompanionPanel({
   const online = status ? status.gateway_online : true
 
   let dotColor = online ? 'var(--success)' : 'var(--danger)'
-  let presenceText = online ? '在线 · 待命中' : '连接重连中'
+  let presenceText = online ? '在线 · 随时陪聊' : '连接重连中'
   let compactLabel = online ? '在线' : '离线'
 
   if (live.streaming) {
@@ -114,49 +113,49 @@ export function CompanionPanel({
       presenceText = `正在思考… (${elapsedSec}s)`
       compactLabel = `思考中 ${elapsedSec}s`
     } else {
-      presenceText = '正在查看消息…'
+      presenceText = '正在看你的消息…'
       compactLabel = '响应中'
     }
   }
 
   const renderCardBody = (isMobile: boolean) => (
-    <div className="flex-1 overflow-y-auto px-4 lg:px-3.5 py-3.5 space-y-4">
-      {/* M2 Context Card: Active Project OR Cross-Project Roaming ("游龙") */}
+    <div className="chat-scroll overflow-y-auto px-5 py-4 space-y-4">
+      {/* Contextual Project Card — only shown when relevant */}
       {activeProject ? (
         <div
           data-testid="active-project-card"
-          className="p-3 rounded-xl space-y-2.5 animate-msg-in"
+          className="p-3.5 rounded-2xl space-y-3 animate-msg-in"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-strong)',
           }}
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-semibold">
+            <div className="flex items-center gap-2 text-[14px] font-semibold">
               <span>{activeProject.emoji || '📁'}</span>
               <span className="truncate">{activeProject.name}</span>
             </div>
             <p
-              className="text-[11px] mt-1 leading-relaxed line-clamp-2"
+              className="text-[12.5px] mt-1 leading-relaxed line-clamp-2"
               style={{ color: 'var(--text-muted)' }}
             >
-              {activeProject.summary || '已自动挂载本项目的 BRIEF 与 MEMORY'}
+              {activeProject.summary || '已自动挂载本项目的规范与历史记忆'}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => {
                 if (isMobile) onCloseMobile()
                 onEditProject(activeProject.id)
               }}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-2 lg:py-1.5 rounded-lg text-xs lg:text-[11px] font-medium pressable cursor-pointer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[12.5px] font-medium pressable cursor-pointer"
               style={{
                 background: 'var(--bg-elevated)',
                 color: 'var(--text-primary)',
               }}
             >
-              <BookOpen size={12} />
+              <BookOpen size={13} />
               <span>项目记忆</span>
             </button>
             <button
@@ -167,16 +166,16 @@ export function CompanionPanel({
                 onDistillActive()
               }}
               data-testid={isMobile ? 'mobile-distill-project-btn' : 'distill-project-btn'}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-2 lg:py-1.5 rounded-lg text-xs lg:text-[11px] font-medium pressable cursor-pointer disabled:opacity-40"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[12.5px] font-medium pressable cursor-pointer disabled:opacity-40"
               style={{
                 background: 'var(--accent)',
                 color: 'var(--accent-contrast)',
               }}
             >
               {distilling ? (
-                <Loader2 size={12} className="animate-spin" />
+                <Loader2 size={13} className="animate-spin" />
               ) : (
-                <Sparkles size={12} />
+                <Sparkles size={13} />
               )}
               <span>{distilling ? '沉淀中…' : '一键沉淀'}</span>
             </button>
@@ -185,21 +184,23 @@ export function CompanionPanel({
       ) : projects.length > 0 ? (
         <div
           data-testid={isMobile ? 'mobile-roaming-projects-card' : 'roaming-projects-card'}
-          className="p-3 rounded-xl space-y-2 animate-msg-in"
+          className="p-3.5 rounded-2xl space-y-2.5 animate-msg-in"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-subtle)',
           }}
         >
-          <div className="flex items-center justify-between text-[11px] font-medium">
+          <div className="flex items-center justify-between text-[13px] font-medium">
             <span className="flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-              <Compass size={12} />
-              <span>跨项目游龙已就绪</span>
+              <Compass size={14} />
+              <span>我的项目</span>
             </span>
-            <span style={{ color: 'var(--text-muted)' }}>{projects.length} 个</span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {projects.length} 个
+            </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {projects.slice(0, 6).map((p) => (
+            {projects.slice(0, 5).map((p) => (
               <button
                 key={p.id}
                 type="button"
@@ -208,211 +209,69 @@ export function CompanionPanel({
                   onSelectProject(p.id)
                 }}
                 title={p.summary || `进入 ${p.name}`}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 lg:px-2 lg:py-1 rounded-lg text-xs lg:text-[11px] sidebar-row pressable cursor-pointer max-w-full"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12.5px] sidebar-row pressable cursor-pointer max-w-full"
                 style={{
                   background: 'var(--bg-elevated)',
                   color: 'var(--text-secondary)',
                 }}
               >
                 <span>{p.emoji || '📁'}</span>
-                <span className="truncate max-w-[110px]">{p.name}</span>
+                <span className="truncate max-w-[120px]">{p.name}</span>
               </button>
             ))}
           </div>
         </div>
       ) : null}
 
-      {/* Self-Evolving Skills & Isolated File Vault */}
-      <div>
+      {/* Today's gentle companionship stats */}
+      <div className="grid grid-cols-2 gap-2.5">
         <div
-          className="text-[11px] font-medium mb-2 px-0.5"
-          style={{ color: 'var(--text-muted)' }}
+          className="px-3.5 py-3 rounded-2xl"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+          }}
         >
-          自进化能力与文件仓
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            data-testid={isMobile ? 'mobile-skills-card-btn' : 'skills-card-btn'}
-            onClick={() => {
-              if (isMobile) onCloseMobile()
-              onOpenVault('skills')
-            }}
-            className="text-left px-3 lg:px-2.5 py-2 rounded-xl sidebar-row pressable cursor-pointer"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              <Sparkles size={11} />
-              <span>已掌握技能</span>
-            </div>
-            <div className="text-sm font-semibold mt-0.5 tabular-nums">
-              {status?.stats.skills_count ?? 0}
-              <span className="text-[11px] font-normal ml-1" style={{ color: 'var(--text-muted)' }}>
-                项
-              </span>
-            </div>
-          </button>
-          <button
-            type="button"
-            data-testid={isMobile ? 'mobile-vault-card-btn' : 'vault-card-btn'}
-            onClick={() => {
-              if (isMobile) onCloseMobile()
-              onOpenVault('artifacts')
-            }}
-            className="text-left px-3 lg:px-2.5 py-2 rounded-xl sidebar-row pressable cursor-pointer"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              <FolderArchive size={11} />
-              <span>隔离文件仓</span>
-            </div>
-            <div className="text-sm font-semibold mt-0.5 tabular-nums">
-              {status?.stats.vault_files_count ?? 0}
-              <span className="text-[11px] font-normal ml-1" style={{ color: 'var(--text-muted)' }}>
-                个
-              </span>
-            </div>
-          </button>
-        </div>
-
-        {status?.skills && status.skills.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {status.skills.slice(0, 4).map((sk) => (
-              <button
-                key={sk.id}
-                type="button"
-                onClick={() => {
-                  if (isMobile) onCloseMobile()
-                  onOpenVault('skills')
-                }}
-                title={sk.description || sk.name}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] sidebar-row pressable cursor-pointer max-w-full"
-                style={{
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <Sparkles size={10} className="shrink-0 opacity-70" />
-                <span className="truncate max-w-[104px]">{sk.name}</span>
-              </button>
-            ))}
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            今日聊了
           </div>
-        )}
-      </div>
-
-      {/* Connection status */}
-      <div>
-        <div
-          className="text-[11px] font-medium mb-2 px-0.5"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          连接状态
-        </div>
-        <div className="space-y-1.5">
-          {(status?.connections || [
-            { id: 'engine', label: 'OpenClaw · DeepSeek', online: true },
-          ]).map((conn) => (
-            <div
-              key={conn.id}
-              className="flex items-center justify-between px-3 lg:px-2.5 py-2 rounded-xl text-xs"
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                color: 'var(--text-secondary)',
-              }}
-            >
-              <span className="truncate">{conn.label}</span>
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{
-                  background: conn.online ? 'var(--success)' : 'var(--danger)',
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Today's pulse */}
-      <div>
-        <div
-          className="text-[11px] font-medium mb-2 px-0.5"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          今日状态
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div
-            className="px-3 lg:px-2.5 py-2 rounded-xl"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              今日对话
-            </div>
-            <div className="text-sm font-semibold mt-0.5">
-              {status?.stats.today_turns ?? 0}
-              <span
-                className="text-[11px] font-normal ml-1"
-                style={{ color: 'var(--text-muted)' }}
-              >
-                轮
-              </span>
-            </div>
+          <div className="text-[16px] font-semibold mt-1 tabular-nums leading-none">
+            {status?.stats.today_turns ?? 0}
+            <span className="text-xs font-normal ml-1" style={{ color: 'var(--text-muted)' }}>
+              轮
+            </span>
           </div>
-          <div
-            className="px-3 lg:px-2.5 py-2 rounded-xl"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              最近活跃
-            </div>
-            <div className="text-[12.5px] font-medium mt-1 truncate">
-              {formatRelativeTime(status?.stats.last_active_at ?? null)}
-            </div>
+        </div>
+        <div
+          className="px-3.5 py-3 rounded-2xl"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            最近互动
+          </div>
+          <div className="text-[14px] font-semibold mt-1 truncate leading-tight">
+            {formatRelativeTime(status?.stats.last_active_at ?? null)}
           </div>
         </div>
       </div>
 
-      {/* Recent activity timeline */}
-      <div>
-        <div
-          className="flex items-center gap-1.5 text-[11px] font-medium mb-2 px-0.5"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          <Activity size={11} />
-          <span>最近动态</span>
-        </div>
-
-        {!status || status.activities.length === 0 ? (
+      {/* Recent moments — concise & readable */}
+      {status && status.activities.length > 0 && (
+        <div>
           <div
-            className="px-3 py-5 rounded-xl text-center text-xs"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-muted)',
-            }}
+            className="text-xs font-medium mb-2 px-0.5"
+            style={{ color: 'var(--text-muted)' }}
           >
-            发一条消息，这里会记录 {assistantName} 的最近动态
+            最近动态
           </div>
-        ) : (
-          <div className="space-y-1.5">
-            {status.activities.slice(0, isMobile ? 5 : 3).map((item) => (
+          <div className="space-y-2">
+            {status.activities.slice(0, isMobile ? 4 : 3).map((item) => (
               <div
                 key={item.id}
-                className="flex items-start gap-2 px-3 lg:px-2.5 py-2 rounded-xl text-xs"
+                className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-2xl text-[13px]"
                 style={{
                   background: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
@@ -420,34 +279,31 @@ export function CompanionPanel({
               >
                 <span className="mt-0.5 shrink-0" style={{ color: 'var(--text-muted)' }}>
                   {item.kind === 'tool' ? (
-                    <Wrench size={12} />
+                    <Wrench size={13} />
                   ) : item.kind === 'project' ? (
-                    <FolderKanban size={12} />
+                    <FolderKanban size={13} />
                   ) : item.kind === 'persona' ? (
-                    <Sparkles size={12} />
+                    <Sparkles size={13} />
                   ) : (
-                    <MessageCircle size={12} />
+                    <MessageCircle size={13} />
                   )}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div
                     className="leading-snug break-words"
-                    style={{ color: 'var(--text-secondary)' }}
+                    style={{ color: 'var(--text-primary)' }}
                   >
                     {item.text}
                   </div>
-                  <div
-                    className="text-[10.5px] mt-0.5"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
+                  <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
                     {formatRelativeTime(item.at)}
                   </div>
                 </div>
               </div>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 
@@ -459,8 +315,8 @@ export function CompanionPanel({
           type="button"
           onClick={onToggleOpen}
           data-testid="companion-pill-toggle"
-          title="展开助手状态与动态"
-          className="fixed top-3 right-3.5 z-20 hidden lg:inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium pressable animate-pop-up cursor-pointer"
+          title="展开助手状态"
+          className="fixed top-4 right-4 z-20 hidden lg:inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium pressable animate-pop-up cursor-pointer"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-subtle)',
@@ -477,7 +333,7 @@ export function CompanionPanel({
         </button>
       )}
 
-      {/* Desktop: Smooth animated floating self-sized companion card */}
+      {/* Desktop: Top-anchored, compact, airy floating companion card */}
       <div
         className="hidden lg:block h-full shrink-0 overflow-hidden panel-slide"
         style={{
@@ -488,11 +344,11 @@ export function CompanionPanel({
       >
         <aside
           data-testid="companion-panel"
-          className="flex flex-col justify-center w-[320px] shrink-0 h-full py-6 pr-5 pl-1.5 select-none"
+          className="flex flex-col justify-start w-[320px] shrink-0 h-full pt-5 pb-5 pr-5 pl-1.5 select-none"
         >
           <div
             data-testid="companion-floating-card"
-            className="max-h-full flex flex-col rounded-3xl overflow-hidden"
+            className="max-h-[calc(100dvh-2.5rem)] flex flex-col rounded-3xl overflow-hidden"
             style={{
               background: 'var(--bg-sidebar)',
               border: '1px solid var(--border-subtle)',
@@ -501,10 +357,10 @@ export function CompanionPanel({
           >
             {/* Hero Donut Presence Header */}
             <div
-              className="px-5 pt-5 pb-4 relative flex flex-col items-center text-center shrink-0"
+              className="px-5 pt-6 pb-5 relative flex flex-col items-center text-center shrink-0"
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
-              <div className="absolute top-3 right-3 flex items-center gap-0.5">
+              <div className="absolute top-3.5 right-3.5 flex items-center gap-1">
                 <button
                   type="button"
                   onClick={onRefresh}
@@ -528,7 +384,7 @@ export function CompanionPanel({
 
               <div
                 data-testid="companion-hero-avatar"
-                className={`w-16 h-16 rounded-full flex items-center justify-center text-4xl shrink-0 ${
+                className={`w-20 h-20 rounded-full flex items-center justify-center text-5xl shrink-0 ${
                   live.streaming ? 'donut-ring-active' : ''
                 }`}
                 style={{
@@ -540,12 +396,12 @@ export function CompanionPanel({
                 {assistantEmoji}
               </div>
 
-              <div className="text-[16px] font-semibold tracking-tight mt-2.5 leading-tight">
+              <div className="text-[18px] font-semibold tracking-tight mt-3 leading-tight">
                 {assistantName}
               </div>
 
               <div
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-medium mt-1.5 max-w-full"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-[13px] font-medium mt-2 max-w-full"
                 style={{
                   background: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
@@ -596,12 +452,12 @@ export function CompanionPanel({
           </div>
 
           <div
-            className="px-4 py-3 flex items-center justify-between gap-2 shrink-0"
+            className="px-5 py-3.5 flex items-center justify-between gap-2 shrink-0"
             style={{ borderBottom: '1px solid var(--border-subtle)' }}
           >
             <div className="flex items-center gap-3 min-w-0">
               <div
-                className={`w-11 h-11 rounded-full flex items-center justify-center text-2xl shrink-0 ${
+                className={`w-12 h-12 rounded-full flex items-center justify-center text-3xl shrink-0 ${
                   live.streaming ? 'donut-ring-active' : ''
                 }`}
                 style={{
@@ -613,13 +469,13 @@ export function CompanionPanel({
                 {assistantEmoji}
               </div>
               <div className="min-w-0">
-                <div className="text-[15px] font-semibold truncate">{assistantName}</div>
+                <div className="text-[16px] font-semibold truncate">{assistantName}</div>
                 <div
-                  className="flex items-center gap-1.5 text-xs mt-0.5 truncate"
+                  className="flex items-center gap-1.5 text-[13px] mt-0.5 truncate"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${live.streaming ? 'animate-soft-breathe' : ''}`}
+                    className={`w-2 h-2 rounded-full shrink-0 ${live.streaming ? 'animate-soft-breathe' : ''}`}
                     style={{ background: dotColor }}
                   />
                   <span className="truncate">{presenceText}</span>
@@ -632,19 +488,19 @@ export function CompanionPanel({
                 type="button"
                 onClick={onRefresh}
                 aria-label="刷新状态"
-                className="p-2 rounded-xl sidebar-row pressable cursor-pointer"
+                className="p-2 rounded-full sidebar-row pressable cursor-pointer"
                 style={{ color: 'var(--text-muted)' }}
               >
-                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
               </button>
               <button
                 type="button"
                 onClick={onCloseMobile}
                 aria-label="关闭状态面板"
-                className="p-2 rounded-xl sidebar-row pressable cursor-pointer"
+                className="p-2 rounded-full sidebar-row pressable cursor-pointer"
                 style={{ color: 'var(--text-muted)' }}
               >
-                <X size={16} />
+                <X size={17} />
               </button>
             </div>
           </div>
