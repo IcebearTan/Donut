@@ -113,6 +113,7 @@ async def _watch_gateway_tool_events(
     session_key: str,
     queue: asyncio.Queue[tuple[str, Any]],
     stop_event: asyncio.Event,
+    ready_event: asyncio.Event,
 ) -> None:
     """
     Passive local Gateway WS sidecar observer (protocol v4 with `tool-events` cap).
@@ -128,6 +129,7 @@ async def _watch_gateway_tool_events(
 
     ws_url = _gateway_ws_url()
     seen_started: set[str] = set()
+    last_assistant_item_id: str | None = None
     try:
         async with websockets.connect(
             ws_url, open_timeout=3.0, close_timeout=1.5, ping_interval=20
@@ -162,10 +164,11 @@ async def _watch_gateway_tool_events(
                 )
             )
             hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=3.0))
+            ready_event.set()
             if not hello.get("ok"):
                 return
 
-            # 3. Stream matching agent tool events until HTTP response completes
+            # 3. Stream matching agent tool & assistant-segment events until HTTP completes
             while not stop_event.is_set():
                 try:
                     frame_raw = await asyncio.wait_for(ws.recv(), timeout=0.4)
@@ -184,10 +187,18 @@ async def _watch_gateway_tool_events(
                 if payload.get("sessionKey") != session_key:
                     continue
 
-                if ev_name == "agent" and payload.get("stream") == "tool":
-                    data = payload.get("data") or {}
-                    if not isinstance(data, dict):
-                        continue
+                if ev_name != "agent":
+                    continue
+
+                stream_kind = payload.get("stream")
+                data = payload.get("data") or {}
+                if not isinstance(data, dict):
+                    continue
+
+                # OpenClaw 2026.11 emits tool lifecycle under stream="item" (kind="tool") or stream="tool"
+                if stream_kind == "tool" or (
+                    stream_kind == "item" and data.get("kind") == "tool"
+                ):
                     phase = str(data.get("phase") or "").lower()
                     name = str(
                         data.get("name")
@@ -198,6 +209,7 @@ async def _watch_gateway_tool_events(
                     call_id = str(
                         data.get("toolCallId")
                         or data.get("callId")
+                        or data.get("itemId")
                         or data.get("id")
                         or f"{name}-{len(seen_started)}"
                     )
@@ -219,10 +231,18 @@ async def _watch_gateway_tool_events(
                                 {"id": call_id, "name": name, "status": "done"},
                             )
                         )
+                elif stream_kind == "assistant":
+                    item_id = data.get("itemId")
+                    if isinstance(item_id, str) and item_id:
+                        if last_assistant_item_id and item_id != last_assistant_item_id:
+                            await queue.put(("http_boundary", None))
+                        last_assistant_item_id = item_id
     except asyncio.CancelledError:
+        ready_event.set()
         return
     except Exception:
         # Never break the primary HTTP /v1/responses stream on sidecar error
+        ready_event.set()
         return
 
 
@@ -270,6 +290,7 @@ async def stream_openclaw_response(
 
     queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
     stop_event = asyncio.Event()
+    ready_event = asyncio.Event()
 
     async def _http_reader() -> None:
         splitter = _InlineThinkSplitter()
@@ -413,8 +434,14 @@ async def stream_openclaw_response(
             session_key=session_key,
             queue=queue,
             stop_event=stop_event,
+            ready_event=ready_event,
         )
     )
+    # Wait up to 0.8s for local WS observer handshake (~15ms) so zero early tool events are missed
+    try:
+        await asyncio.wait_for(ready_event.wait(), timeout=0.8)
+    except asyncio.TimeoutError:
+        pass
     http_task = asyncio.create_task(_http_reader())
 
     emitted_text_any = False
@@ -439,11 +466,12 @@ async def stream_openclaw_response(
                     if not chunk:
                         continue
                     if need_bubble_break and emitted_text_any:
+                        stripped = chunk.lstrip("\n")
+                        if not stripped:
+                            continue
                         need_bubble_break = False
-                        chunk = chunk.lstrip("\n")
-                        if chunk:
-                            yield {"type": "delta", "text": BUBBLE_BREAK_MARKER + chunk}
-                            emitted_text_any = True
+                        yield {"type": "delta", "text": BUBBLE_BREAK_MARKER + stripped}
+                        emitted_text_any = True
                         continue
                     emitted_text_any = True
                     yield data
