@@ -159,6 +159,8 @@ async def stream_openclaw_response(
 
                 event_name = ""
                 data_lines: list[str] = []
+                emitted_text_any = False
+                need_batch_break = False
 
                 async for raw_line in resp.aiter_lines():
                     line = raw_line.rstrip("\r")
@@ -186,10 +188,15 @@ async def stream_openclaw_response(
                             if ev_type == "response.output_text.delta":
                                 delta = parsed.get("delta") or ""
                                 if delta:
+                                    if need_batch_break:
+                                        need_batch_break = False
+                                        if not delta.startswith("\n"):
+                                            yield {"type": "delta", "text": "\n\n"}
                                     for kind, chunk in splitter.feed(delta):
                                         if kind == "thinking":
                                             yield {"type": "thinking", "delta": chunk}
                                         else:
+                                            emitted_text_any = True
                                             yield {"type": "delta", "text": chunk}
 
                             # 2. Reasoning / thinking deltas
@@ -212,6 +219,8 @@ async def stream_openclaw_response(
                                     "web_search_call",
                                     "tool_call",
                                 ):
+                                    if emitted_text_any:
+                                        need_batch_break = True
                                     yield {
                                         "type": "tool",
                                         "id": item.get("call_id") or item.get("id") or itype,

@@ -8,11 +8,13 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("PORTAL_DATA_DIR", str(BASE_DIR / "data")))
 UPLOAD_DIR = DATA_DIR / "uploads"
+GENERATED_DIR = DATA_DIR / "generated"
 DB_PATH = DATA_DIR / "portal.db"
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 
 COOKIE_NAME = "portal_session"
 COOKIE_SECURE = os.environ.get("PORTAL_COOKIE_SECURE", "0") == "1"

@@ -10,6 +10,8 @@ import {
   CheckCheck,
   Clock,
   Copy,
+  Download,
+  FileText,
   ImagePlus,
   Loader2,
   Sparkles,
@@ -68,6 +70,8 @@ function formatToolLabel(name: string): string {
   if (lower.includes('memory') || lower.includes('wiki')) return '正在翻阅记忆'
   if (lower.includes('search') || lower.includes('web') || lower.includes('fetch'))
     return '正在联网检索'
+  if (lower.includes('exec') || lower.includes('bash') || lower.includes('shell'))
+    return '正在整理与生成文件'
   if (lower.includes('read') || lower.includes('write') || lower.includes('file'))
     return '正在读写文件'
   return `正在调用 ${name}`
@@ -179,10 +183,12 @@ function LiveWaitingBanner({
   assistantName,
   startedAt,
   runningTool,
+  inlineAfterText = false,
 }: {
   assistantName: string
   startedAt: number
   runningTool?: ToolCallItem
+  inlineAfterText?: boolean
 }) {
   const [elapsedSec, setElapsedSec] = useState(() =>
     Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
@@ -195,18 +201,32 @@ function LiveWaitingBanner({
     return () => window.clearInterval(timer)
   }, [startedAt])
 
-  let statusText = `${assistantName} 正在查看消息…`
+  // Key ONLY by semantic phase (NOT by elapsedSec!) so the label never jumps/flickers every second
+  let phaseKey = 'viewing'
+  let label = inlineAfterText ? `${assistantName} 正在继续处理` : `${assistantName} 正在查看消息…`
+  let showSec = false
+  let suffix = ''
+
   if (runningTool) {
-    statusText = `${formatToolLabel(runningTool.name)}… (${elapsedSec}s)`
+    phaseKey = `tool:${runningTool.name}`
+    label = formatToolLabel(runningTool.name)
+    showSec = elapsedSec >= 1
   } else if (elapsedSec >= 15) {
-    statusText = `已思考 ${elapsedSec} 秒 · 正在处理较复杂任务（连接正常）`
-  } else if (elapsedSec >= 2) {
-    statusText = `已思考 ${elapsedSec} 秒…`
+    phaseKey = 'complex'
+    label = '正在处理较复杂任务'
+    showSec = true
+    suffix = ' · 连接正常'
+  } else if (elapsedSec >= 2 || inlineAfterText) {
+    phaseKey = inlineAfterText ? 'continuing' : 'thinking'
+    label = inlineAfterText ? '正在整理下一步' : '已思考'
+    showSec = elapsedSec >= 2
   }
 
   return (
     <div
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs animate-asst-arrive"
+      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs ${
+        inlineAfterText ? 'mt-2.5' : 'animate-asst-arrive'
+      }`}
       style={{
         background: 'var(--bg-think)',
         border: '1px solid var(--border-subtle)',
@@ -217,8 +237,14 @@ function LiveWaitingBanner({
         className="w-2 h-2 rounded-full shrink-0 animate-soft-breathe"
         style={{ background: '#f59e0b' }}
       />
-      <span key={statusText} className="animate-receipt-in">
-        {statusText}
+      <span key={phaseKey} className="animate-receipt-in inline-flex items-center gap-1">
+        <span>{label}</span>
+        {showSec && (
+          <span className="tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {phaseKey === 'thinking' ? `${elapsedSec} 秒…` : `(${elapsedSec}s)`}
+          </span>
+        )}
+        {suffix && <span style={{ color: 'var(--text-muted)' }}>{suffix}</span>}
       </span>
     </div>
   )
@@ -300,6 +326,43 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
                 remarkPlugins={[remarkGfm]}
                 components={{
                   pre: ({ children }) => <>{children}</>,
+                  a: ({ href, children, ...rest }) => {
+                    if (href && href.startsWith('/portal-api/files/')) {
+                      return (
+                        <a
+                          href={href}
+                          download
+                          className="my-2 inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium no-underline pressable"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-strong)',
+                            color: 'var(--text-primary)',
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <FileText size={16} className="shrink-0 opacity-80" />
+                          <span className="truncate max-w-[240px] sm:max-w-[360px]">
+                            {children}
+                          </span>
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs shrink-0"
+                            style={{
+                              background: 'var(--accent)',
+                              color: 'var(--accent-contrast)',
+                            }}
+                          >
+                            <Download size={11} />
+                            <span>下载</span>
+                          </span>
+                        </a>
+                      )
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noreferrer" {...rest}>
+                        {children}
+                      </a>
+                    )
+                  },
                   code: ({ className, children, ...rest }) => {
                     const isBlock = Boolean(className) || String(children).includes('\n')
                     if (isBlock) {
@@ -316,13 +379,21 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
                 {msg.content}
               </ReactMarkdown>
             </div>
+            {msg.streaming && runningTool && (
+              <LiveWaitingBanner
+                assistantName={assistantName}
+                startedAt={msg.startedAt || msg.created_at}
+                runningTool={runningTool}
+                inlineAfterText
+              />
+            )}
             {!msg.streaming && !hasThinking && msg.usage?.elapsed_ms && msg.usage.elapsed_ms >= 3000 && (
               <div
                 className="mt-1.5 inline-flex items-center gap-1 text-[11px]"
                 style={{ color: 'var(--text-muted)' }}
               >
                 <Clock size={10} />
-                <span>已思考 {finalSec} 秒</span>
+                <span className="tabular-nums">已思考 {finalSec} 秒</span>
               </div>
             )}
           </>
@@ -469,11 +540,11 @@ export function ChatView({
     setUploading(true)
     try {
       const added: Array<{ id: string; url: string }> = []
-      for (const file of list.slice(0, 4 - pendingImages.length)) {
+      for (const file of list.slice(0, 10 - pendingImages.length)) {
         const res = await api.uploadImage(file)
         added.push(res)
       }
-      setPendingImages((prev) => [...prev, ...added].slice(0, 4))
+      setPendingImages((prev) => [...prev, ...added].slice(0, 10))
     } catch (e) {
       alert(e instanceof Error ? e.message : '图片上传失败')
     } finally {
@@ -673,7 +744,7 @@ export function ChatView({
             />
             <button
               type="button"
-              disabled={uploading || streaming || pendingImages.length >= 4}
+              disabled={uploading || streaming || pendingImages.length >= 10}
               onClick={() => fileRef.current?.click()}
               title="上传图片（支持 Ctrl+V 直接粘贴截图）"
               className="p-2 rounded-xl sidebar-row pressable disabled:opacity-40 cursor-pointer shrink-0"
