@@ -471,13 +471,13 @@ export function CompanionPanel({
       {/* Mobile: Native-grade Bottom Sheet for Donut Status, Projects & Activity */}
       <div
         className={`fixed inset-0 z-50 lg:hidden flex flex-col justify-end transition-opacity duration-200 ${
-          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          mobileOpen
+            ? 'opacity-100 pointer-events-auto visible'
+            : 'opacity-0 pointer-events-none invisible'
         }`}
+        aria-hidden={!mobileOpen}
       >
-        <div
-          className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-          onClick={onCloseMobile}
-        />
+        <div className="absolute inset-0 bg-black/40" onClick={onCloseMobile} />
         <div
           data-testid="mobile-companion-sheet"
           className="relative z-10 max-h-[82dvh] flex flex-col rounded-t-3xl overflow-hidden safe-pb transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]"

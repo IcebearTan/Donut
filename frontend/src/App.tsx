@@ -668,11 +668,11 @@ export function App() {
           </button>
         )}
 
-        {/* Native-grade mobile top bar with safe-area padding & live Donut status pill */}
+        {/* Native-grade mobile top bar — solid surface + z-10 to prevent WebView backdrop-filter bleed */}
         <div
-          className="lg:hidden safe-pt shrink-0 backdrop-blur-md"
+          className="lg:hidden safe-pt shrink-0 relative z-10"
           style={{
-            background: 'color-mix(in srgb, var(--bg-page) 88%, transparent)',
+            background: 'var(--bg-page)',
             borderBottom: '1px solid var(--border-subtle)',
           }}
         >

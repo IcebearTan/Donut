@@ -679,10 +679,12 @@ export function SessionSidebar({
         {sidebarBody(false)}
       </div>
 
-      {/* Smooth GPU-accelerated mobile slide-over drawer (smooth both open & close) */}
+      {/* Smooth GPU-accelerated mobile slide-over drawer (invisible when closed to avoid WebView compositing glitches) */}
       <div
         className={`fixed inset-0 z-50 lg:hidden flex transition-opacity duration-200 ${
-          openMobile ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          openMobile
+            ? 'opacity-100 pointer-events-auto visible'
+            : 'opacity-0 pointer-events-none invisible'
         }`}
         aria-hidden={!openMobile}
       >
@@ -695,10 +697,7 @@ export function SessionSidebar({
         >
           {sidebarBody(true)}
         </div>
-        <div
-          className="flex-1 bg-black/40 backdrop-blur-[2px]"
-          onClick={onCloseMobile}
-        />
+        <div className="flex-1 bg-black/40" onClick={onCloseMobile} />
       </div>
     </>
   )

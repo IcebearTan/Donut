@@ -508,7 +508,7 @@ export function ChatView({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 relative">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
       {messages.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center px-4 pb-8 text-center animate-msg-in">
           <div
