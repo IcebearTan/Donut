@@ -103,7 +103,11 @@ async def generate_smart_title(
 ) -> Optional[str]:
     """Generate a crisp 4-12 Chinese char ChatGPT-style conversation title."""
     u_excerpt = (user_text or "").strip().replace("\n", " ")[:400]
-    a_excerpt = (assistant_text or "").strip().replace("\n", " ")[:500]
+    a_excerpt = (
+        re.sub(r"<!--\s*donut-bubble\s*-->", " ", assistant_text or "")
+        .strip()
+        .replace("\n", " ")[:500]
+    )
     if not u_excerpt and not a_excerpt:
         return None
 

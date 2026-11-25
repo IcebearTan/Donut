@@ -407,6 +407,42 @@ export function App() {
     let bufferedDone = false
     let bufferedError: string | null = null
 
+    // Coalesce high-frequency streaming deltas to at most 1 React state update per animation frame
+    let pendingLiveText = ''
+    let pendingLiveThinking = ''
+    let rafId: number | null = null
+
+    const flushLiveFrame = () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      const addText = pendingLiveText
+      const addThink = pendingLiveThinking
+      pendingLiveText = ''
+      pendingLiveThinking = ''
+      if (!addText && !addThink) return
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempAsstId
+            ? {
+                ...m,
+                content: addText ? m.content + addText : m.content,
+                thinking: addThink ? (m.thinking || '') + addThink : m.thinking,
+              }
+            : m,
+        ),
+      )
+    }
+
+    const scheduleLiveFrame = () => {
+      if (rafId !== null) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null
+        flushLiveFrame()
+      })
+    }
+
     let resolveChoreography!: () => void
     const choreographyDone = new Promise<void>((res) => {
       resolveChoreography = res
@@ -559,13 +595,8 @@ export function App() {
               bufferedThinking += ev.delta
               return
             }
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempAsstId
-                  ? { ...m, thinking: (m.thinking || '') + ev.delta }
-                  : m,
-              ),
-            )
+            pendingLiveThinking += ev.delta
+            scheduleLiveFrame()
           } else if (ev.type === 'tool') {
             if (!readyToFlush) {
               const idx = bufferedTools.findIndex((t) => t.id === ev.id)
@@ -576,6 +607,7 @@ export function App() {
               }
               return
             }
+            flushLiveFrame()
             setLiveState((prev) => ({
               streaming: true,
               startedAt: prev.startedAt || Date.now(),
@@ -600,11 +632,8 @@ export function App() {
               bufferedText += ev.text
               return
             }
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempAsstId ? { ...m, content: m.content + ev.text } : m,
-              ),
-            )
+            pendingLiveText += ev.text
+            scheduleLiveFrame()
           } else if (ev.type === 'title') {
             setSessions((prev) =>
               prev.map((s) => (s.id === sid ? { ...s, title: ev.title } : s)),
@@ -615,6 +644,7 @@ export function App() {
               bufferedDoneUsage = ev.usage
               return
             }
+            flushLiveFrame()
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId ? { ...m, usage: ev.usage, streaming: false } : m,
@@ -625,6 +655,7 @@ export function App() {
               bufferedError = ev.message
               return
             }
+            flushLiveFrame()
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId
@@ -671,6 +702,7 @@ export function App() {
       }
     } finally {
       clearChoreographyTimers()
+      flushLiveFrame()
       if (!aborted && !readyToFlush) {
         flushBufferedEvents()
       }
@@ -962,6 +994,7 @@ export function App() {
         ) : (
           <div className="flex-1 flex min-w-0 min-h-0 relative">
             <ChatView
+              sessionKey={activeSessionId || 'new'}
               user={user}
               activeProject={activeProject}
               isMainSession={isMainSession}

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
 
 from .config import OPENCLAW_GATEWAY_URL, USER_AGENT_MAP, load_openclaw_token
+
+BUBBLE_BREAK_MARKER = "\n\n<!-- donut-bubble -->\n\n"
 
 
 def build_input_payload(text: str, image_paths: list[Path]) -> Any:
@@ -161,6 +164,7 @@ async def stream_openclaw_response(
                 data_lines: list[str] = []
                 emitted_text_any = False
                 need_batch_break = False
+                last_text_at: float | None = None
 
                 async for raw_line in resp.aiter_lines():
                     line = raw_line.rstrip("\r")
@@ -188,15 +192,30 @@ async def stream_openclaw_response(
                             if ev_type == "response.output_text.delta":
                                 delta = parsed.get("delta") or ""
                                 if delta:
-                                    if need_batch_break:
+                                    now_mono = time.monotonic()
+                                    # Also detect silent multi-step tool pauses (>= 2.8s between text batches)
+                                    if (
+                                        emitted_text_any
+                                        and last_text_at is not None
+                                        and (now_mono - last_text_at) >= 2.8
+                                    ):
+                                        need_batch_break = True
+
+                                    if need_batch_break and emitted_text_any:
                                         need_batch_break = False
-                                        if not delta.startswith("\n"):
-                                            yield {"type": "delta", "text": "\n\n"}
+                                        yield {"type": "delta", "text": BUBBLE_BREAK_MARKER}
+                                        delta = delta.lstrip("\n")
+                                        if not delta:
+                                            continue
+
                                     for kind, chunk in splitter.feed(delta):
                                         if kind == "thinking":
+                                            if emitted_text_any:
+                                                need_batch_break = True
                                             yield {"type": "thinking", "delta": chunk}
                                         else:
                                             emitted_text_any = True
+                                            last_text_at = now_mono
                                             yield {"type": "delta", "text": chunk}
 
                             # 2. Reasoning / thinking deltas
@@ -207,9 +226,11 @@ async def stream_openclaw_response(
                             ):
                                 delta = parsed.get("delta") or ""
                                 if delta:
+                                    if emitted_text_any:
+                                        need_batch_break = True
                                     yield {"type": "thinking", "delta": delta}
 
-                            # 3. Output item added (tool calls / reasoning start)
+                            # 3. Output item added (tool calls / new message segment)
                             elif ev_type == "response.output_item.added":
                                 item = parsed.get("item") or {}
                                 itype = item.get("type", "")
@@ -227,8 +248,10 @@ async def stream_openclaw_response(
                                         "name": item.get("name") or item.get("server_label") or itype,
                                         "status": "running",
                                     }
+                                elif itype == "message" and emitted_text_any:
+                                    need_batch_break = True
 
-                            # 4. Output item completed (tool calls finished / reasoning summary)
+                            # 4. Output item completed (tool calls finished / message segment ended)
                             elif ev_type == "response.output_item.done":
                                 item = parsed.get("item") or {}
                                 itype = item.get("type", "")
@@ -238,12 +261,16 @@ async def stream_openclaw_response(
                                     "web_search_call",
                                     "tool_call",
                                 ):
+                                    if emitted_text_any:
+                                        need_batch_break = True
                                     yield {
                                         "type": "tool",
                                         "id": item.get("call_id") or item.get("id") or itype,
                                         "name": item.get("name") or item.get("server_label") or itype,
                                         "status": "done",
                                     }
+                                elif itype == "message" and emitted_text_any:
+                                    need_batch_break = True
 
                             # 5. Completed
                             elif ev_type == "response.completed":
