@@ -207,15 +207,20 @@ function LiveWaitingBanner({
 
   return (
     <div
-      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs"
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs animate-asst-arrive"
       style={{
         background: 'var(--bg-think)',
         border: '1px solid var(--border-subtle)',
         color: 'var(--text-secondary)',
       }}
     >
-      <Loader2 size={12} className="animate-spin shrink-0" />
-      <span>{statusText}</span>
+      <span
+        className="w-2 h-2 rounded-full shrink-0 animate-soft-breathe"
+        style={{ background: '#f59e0b' }}
+      />
+      <span key={statusText} className="animate-receipt-in">
+        {statusText}
+      </span>
     </div>
   )
 }
@@ -246,7 +251,7 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
       : liveSec
 
   return (
-    <div className="flex gap-3 max-w-3xl w-full mx-auto">
+    <div className="flex gap-2.5 sm:gap-3 max-w-3xl w-full mx-auto animate-asst-arrive">
       <div
         className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm mt-0.5 select-none"
         style={{
@@ -336,10 +341,13 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
 
 function UserBubble({ msg, showReceipt }: { msg: ChatMessage; showReceipt: boolean }) {
   const status = msg.deliveryStatus || 'delivered'
+  const isFresh = msg.deliveryStatus !== undefined
 
   return (
-    <div className="flex justify-end max-w-3xl w-full mx-auto">
-      <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end gap-1">
+    <div
+      className={`flex justify-end max-w-3xl w-full mx-auto ${isFresh ? 'animate-user-send' : ''}`}
+    >
+      <div className="max-w-[86%] sm:max-w-[75%] flex flex-col items-end gap-1">
         {msg.images && msg.images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-2">
             {msg.images.map((url, idx) => (
@@ -355,7 +363,7 @@ function UserBubble({ msg, showReceipt }: { msg: ChatMessage; showReceipt: boole
         )}
         {msg.content && (
           <div
-            className="px-4 py-2.5 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed whitespace-pre-wrap break-word"
+            className="px-3.5 sm:px-4 py-2.5 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed whitespace-pre-wrap break-word"
             style={{
               background: 'var(--bg-user-bubble)',
               color: 'var(--text-user-bubble)',
@@ -366,7 +374,8 @@ function UserBubble({ msg, showReceipt }: { msg: ChatMessage; showReceipt: boole
         )}
         {showReceipt && (
           <div
-            className="flex items-center gap-1 text-[11px] px-1 select-none"
+            key={status}
+            className="flex items-center gap-1 text-[11px] px-1 select-none animate-receipt-in"
             style={{
               color: status === 'failed' ? 'var(--danger)' : 'var(--text-muted)',
             }}
@@ -557,11 +566,11 @@ export function ChatView({
         </div>
       ) : (
         <StickToBottom
-          className="flex-1 overflow-y-auto px-4 sm:px-6 pt-8 pb-6"
+          className="flex-1 overflow-y-auto px-3.5 sm:px-6 pt-4 lg:pt-8 pb-4 sm:pb-6"
           resize="smooth"
           initial="instant"
         >
-          <StickToBottom.Content className="space-y-5 pb-4">
+          <StickToBottom.Content className="space-y-4 sm:space-y-5 pb-3">
             {messages.map((m, idx) => {
               const prev = idx > 0 ? messages[idx - 1] : null
               const showTimeDivider =
@@ -570,7 +579,7 @@ export function ChatView({
                 !isSameDay(new Date(m.created_at), new Date(prev.created_at))
 
               return (
-                <div key={m.id} className="space-y-4 animate-msg-in">
+                <div key={m.id} className="space-y-3.5 sm:space-y-4">
                   {showTimeDivider && (
                     <div className="flex items-center justify-center py-1 select-none">
                       <span
@@ -597,9 +606,9 @@ export function ChatView({
       )}
 
       {/* Composer */}
-      <div className="shrink-0 px-3 sm:px-6 pb-5 pt-2">
+      <div className="shrink-0 px-3 sm:px-6 pt-1.5 safe-pb sm:pb-5">
         <div
-          className="max-w-3xl mx-auto rounded-[22px] p-2.5 transition-colors"
+          className="max-w-3xl mx-auto rounded-[24px] p-2 sm:p-2.5 transition-all duration-150 focus-within:border-[var(--text-muted)]"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-strong)',
@@ -664,7 +673,7 @@ export function ChatView({
               placeholder={
                 activeProject
                   ? `在「${activeProject.name}」中给 ${assistantName} 发消息…`
-                  : `给 ${assistantName} 发消息…（Shift+Enter 换行，支持粘贴截图）`
+                  : `给 ${assistantName} 发消息…`
               }
               className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-44"
               style={{ color: 'var(--text-primary)' }}

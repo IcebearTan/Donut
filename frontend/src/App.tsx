@@ -16,6 +16,12 @@ import { ChatView } from './components/ChatView'
 import { CompanionPanel, type LiveStreamState } from './components/CompanionPanel'
 import { SettingsModal } from './components/SettingsModal'
 import { ProjectModal } from './components/ProjectModal'
+import { PwaInstallModal } from './components/PwaInstallModal'
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
 
 function getInitialTheme(): 'light' | 'dark' {
   try {
@@ -26,6 +32,18 @@ function getInitialTheme(): 'light' | 'dark' {
   }
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
+
+function isRunningStandalone(): boolean {
+  if (typeof window === 'undefined') return false
+  return (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    Boolean((window.navigator as { standalone?: boolean }).standalone)
+  )
+}
+
+// Graceful Dot-style pacing so user bubble -> ✓✓ 已送达 -> Donut thinking arrive in calm steps
+const MIN_DELIVERY_BEAT_MS = 340
+const ASSISTANT_ARRIVE_DELAY_MS = 380
 
 export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
@@ -54,11 +72,18 @@ export function App() {
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [mobileCompanionOpen, setMobileCompanionOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'persona' | 'account' | null>(null)
   const [projectModal, setProjectModal] = useState<{ open: boolean; projectId: string | null }>({
     open: false,
     projectId: null,
   })
+
+  // PWA install state
+  const [standalone] = useState<boolean>(isRunningStandalone)
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [pwaModalOpen, setPwaModalOpen] = useState(false)
+
   const [toast, setToast] = useState<string | null>(null)
   const toastTimerRef = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -78,7 +103,29 @@ export function App() {
     }
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', theme === 'dark' ? '#212121' : '#ffffff')
+    const appleStatus = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+    if (appleStatus) {
+      appleStatus.setAttribute('content', theme === 'dark' ? 'black-translucent' : 'default')
+    }
   }, [theme])
+
+  useEffect(() => {
+    function onBeforeInstall(e: Event) {
+      e.preventDefault()
+      setDeferredPrompt(e as BeforeInstallPromptEvent)
+    }
+    function onInstalled() {
+      setDeferredPrompt(null)
+      setPwaModalOpen(false)
+      showToast('Donut 已安装到设备')
+    }
+    window.addEventListener('beforeinstallprompt', onBeforeInstall)
+    window.addEventListener('appinstalled', onInstalled)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall)
+      window.removeEventListener('appinstalled', onInstalled)
+    }
+  }, [showToast])
 
   const refreshStatus = useCallback(async () => {
     setLoadingStatus(true)
@@ -103,7 +150,6 @@ export function App() {
     setSessions(sessRes.sessions)
     setProjects(projRes.projects)
 
-    // Pick most recently active session (prefer main or latest chatted session)
     const nonMain = sessRes.sessions.filter((s) => !s.is_main)
     const mainSess = sessRes.sessions.find((s) => Boolean(s.is_main))
     const initial =
@@ -132,7 +178,6 @@ export function App() {
       .finally(() => setCheckingAuth(false))
   }, [loadWorkspace])
 
-  // Gentle 60s background refresh of companion connection & recent activities
   useEffect(() => {
     if (!user) return
     const timer = window.setInterval(() => {
@@ -249,6 +294,20 @@ export function App() {
     }
   }
 
+  async function handleTriggerNativePwaInstall() {
+    if (!deferredPrompt) return
+    try {
+      await deferredPrompt.prompt()
+      const choice = await deferredPrompt.userChoice
+      if (choice.outcome === 'accepted') {
+        setPwaModalOpen(false)
+      }
+      setDeferredPrompt(null)
+    } catch {
+      // ignore
+    }
+  }
+
   async function handleSend(text: string, imageIds: string[], imageUrls: string[]) {
     let sid = activeSessionId
     if (!sid) {
@@ -260,8 +319,9 @@ export function App() {
 
     const tempUserId = `u-${Date.now()}`
     const tempAsstId = `a-${Date.now()}`
-    const now = Date.now()
+    const sentAt = Date.now()
 
+    // Phase 1 (T=0ms): Only insert user bubble with gentle "发送中…"
     setMessages((prev) => [
       ...prev,
       {
@@ -269,44 +329,102 @@ export function App() {
         role: 'user',
         content: text,
         images: imageUrls,
-        created_at: now,
+        created_at: sentAt,
         deliveryStatus: 'sending',
-      },
-      {
-        id: tempAsstId,
-        role: 'assistant',
-        content: '',
-        thinking: '',
-        tools: [],
-        created_at: now + 1,
-        startedAt: now,
-        streaming: true,
       },
     ])
 
     const controller = new AbortController()
     abortRef.current = controller
     setStreaming(true)
-    setLiveState({ streaming: true, startedAt: now, activeToolName: null })
+
+    let deliveredShown = false
+    let assistantInserted = false
+    let deliveryTimer: number | null = null
+    let assistantTimer: number | null = null
+
+    const clearChoreographyTimers = () => {
+      if (deliveryTimer !== null) {
+        window.clearTimeout(deliveryTimer)
+        deliveryTimer = null
+      }
+      if (assistantTimer !== null) {
+        window.clearTimeout(assistantTimer)
+        assistantTimer = null
+      }
+    }
+
+    const markUserDeliveredNow = () => {
+      if (deliveredShown) return
+      deliveredShown = true
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempUserId ? { ...m, deliveryStatus: 'delivered' } : m)),
+      )
+    }
+
+    const ensureAssistantBubble = (patch?: Partial<ChatMessage>) => {
+      if (assistantTimer !== null) {
+        window.clearTimeout(assistantTimer)
+        assistantTimer = null
+      }
+      if (!assistantInserted) {
+        assistantInserted = true
+        const appearAt = Date.now()
+        setLiveState((prev) => ({
+          streaming: true,
+          startedAt: prev.startedAt || appearAt,
+          activeToolName: prev.activeToolName,
+        }))
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: tempAsstId,
+            role: 'assistant',
+            content: '',
+            thinking: '',
+            tools: [],
+            created_at: appearAt,
+            startedAt: appearAt,
+            streaming: true,
+            ...patch,
+          },
+        ])
+      } else if (patch) {
+        setMessages((prev) => prev.map((m) => (m.id === tempAsstId ? { ...m, ...patch } : m)))
+      }
+    }
+
+    // Fallback: if meta takes unusually long (>900ms), gently show Donut waiting so user knows we're alive
+    assistantTimer = window.setTimeout(() => {
+      ensureAssistantBubble()
+    }, 900)
 
     try {
       await streamChat(
         { session_id: sid, content: text, images: imageIds },
         (ev) => {
           if (ev.type === 'meta') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempUserId ? { ...m, deliveryStatus: 'delivered' } : m,
-              ),
-            )
             setSessions((prev) =>
               prev.map((s) =>
                 s.id === sid ? { ...s, title: ev.title, updated_at: Date.now() } : s,
               ),
             )
+            // Phase 2 (~340ms): Crossfade "发送中…" -> "✓✓ 已送达"
+            const elapsed = Date.now() - sentAt
+            const waitDelivery = Math.max(0, MIN_DELIVERY_BEAT_MS - elapsed)
+            clearChoreographyTimers()
+            deliveryTimer = window.setTimeout(() => {
+              markUserDeliveredNow()
+              // Phase 3 (+380ms breath after delivery): Donut gently enters & starts thinking
+              assistantTimer = window.setTimeout(() => {
+                ensureAssistantBubble()
+              }, ASSISTANT_ARRIVE_DELAY_MS)
+            }, waitDelivery)
           } else if (ev.type === 'heartbeat') {
-            // Keep-alive signal from backend — confirms connection is healthy
+            // Keep-alive signal from backend
           } else if (ev.type === 'thinking') {
+            markUserDeliveredNow()
+            ensureAssistantBubble()
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId
@@ -315,8 +433,11 @@ export function App() {
               ),
             )
           } else if (ev.type === 'tool') {
+            markUserDeliveredNow()
+            ensureAssistantBubble()
             setLiveState((prev) => ({
-              ...prev,
+              streaming: true,
+              startedAt: prev.startedAt || Date.now(),
               activeToolName: ev.status === 'running' ? ev.name : null,
             }))
             setMessages((prev) =>
@@ -334,54 +455,69 @@ export function App() {
               }),
             )
           } else if (ev.type === 'delta') {
+            markUserDeliveredNow()
+            ensureAssistantBubble()
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId ? { ...m, content: m.content + ev.text } : m,
               ),
             )
           } else if (ev.type === 'done') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempAsstId ? { ...m, usage: ev.usage, streaming: false } : m,
-              ),
-            )
+            clearChoreographyTimers()
+            markUserDeliveredNow()
+            ensureAssistantBubble({ usage: ev.usage, streaming: false })
           } else if (ev.type === 'error') {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempAsstId
-                  ? {
-                      ...m,
-                      content: m.content
-                        ? `${m.content}\n\n> ⚠️ ${ev.message}`
-                        : `⚠️ ${ev.message}`,
-                      streaming: false,
-                    }
-                  : m,
-              ),
-            )
+            clearChoreographyTimers()
+            markUserDeliveredNow()
+            if (!assistantInserted) {
+              ensureAssistantBubble({ content: `⚠️ ${ev.message}`, streaming: false })
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === tempAsstId
+                    ? {
+                        ...m,
+                        content: m.content
+                          ? `${m.content}\n\n> ⚠️ ${ev.message}`
+                          : `⚠️ ${ev.message}`,
+                        streaming: false,
+                      }
+                    : m,
+                ),
+              )
+            }
           }
         },
         controller.signal,
       )
     } catch (err) {
+      clearChoreographyTimers()
       if ((err as Error).name !== 'AbortError') {
         const msg = err instanceof Error ? err.message : '连接中断'
-        setMessages((prev) =>
-          prev.map((m) => {
-            if (m.id === tempUserId && m.deliveryStatus === 'sending') {
-              return { ...m, deliveryStatus: 'failed' }
-            }
-            if (m.id === tempAsstId) {
-              return { ...m, content: m.content || `⚠️ ${msg}`, streaming: false }
-            }
-            return m
-          }),
-        )
+        if (!deliveredShown) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempUserId ? { ...m, deliveryStatus: 'failed' } : m)),
+          )
+        }
+        if (!assistantInserted) {
+          ensureAssistantBubble({ content: `⚠️ ${msg}`, streaming: false })
+        } else {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAsstId
+                ? { ...m, content: m.content || `⚠️ ${msg}`, streaming: false }
+                : m,
+            ),
+          )
+        }
       }
     } finally {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempAsstId ? { ...m, streaming: false } : m)),
-      )
+      clearChoreographyTimers()
+      if (assistantInserted) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempAsstId ? { ...m, streaming: false } : m)),
+        )
+      }
       setStreaming(false)
       setLiveState({ streaming: false, startedAt: null, activeToolName: null })
       abortRef.current = null
@@ -448,6 +584,19 @@ export function App() {
   const isMainSession = Boolean(activeSession?.is_main)
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
+  const gatewayOnline = companionStatus ? companionStatus.gateway_online : true
+  const mobileDotColor = liveState.streaming
+    ? '#f59e0b'
+    : gatewayOnline
+      ? 'var(--success)'
+      : 'var(--danger)'
+  const mobileStatusText = liveState.streaming
+    ? liveState.activeToolName
+      ? '处理中'
+      : '思考中'
+    : gatewayOnline
+      ? '在线'
+      : '重连'
 
   return (
     <div className="h-full flex overflow-hidden relative" style={{ background: 'var(--bg-page)' }}>
@@ -493,10 +642,12 @@ export function App() {
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
         onOpenSettings={(tab) => setSettingsTab(tab)}
+        showInstallApp={!standalone}
+        onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
       />
 
-      {/* Main content area — ZERO top bar on desktop */}
+      {/* Main content area — ZERO top bar on desktop; native-grade sleek bar on mobile */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
         {/* Whisper-quiet floating sidebar reopen button on desktop when collapsed */}
         {!desktopSidebarOpen && (
@@ -517,34 +668,68 @@ export function App() {
           </button>
         )}
 
-        {/* Ultra-minimal mobile-only drawer trigger */}
-        <div className="lg:hidden flex items-center justify-between px-3 h-11 shrink-0">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            aria-label="打开侧边栏"
-            className="p-2 -ml-1 rounded-xl pressable cursor-pointer"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <Menu size={18} />
-          </button>
-          <span className="text-sm font-medium flex items-center gap-1.5 truncate">
-            <span>
-              {activeExternalApp
-                ? activeExternalApp.emoji
-                : activeProject
-                  ? activeProject.emoji || '📁'
-                  : assistantEmoji}
-            </span>
-            <span className="truncate">
-              {activeExternalApp
-                ? activeExternalApp.shortName
-                : activeProject
-                  ? activeProject.name
-                  : assistantName}
-            </span>
-          </span>
-          <div className="w-8" />
+        {/* Native-grade mobile top bar with safe-area padding & live Donut status pill */}
+        <div
+          className="lg:hidden safe-pt shrink-0 backdrop-blur-md"
+          style={{
+            background: 'color-mix(in srgb, var(--bg-page) 88%, transparent)',
+            borderBottom: '1px solid var(--border-subtle)',
+          }}
+        >
+          <div className="h-12 px-2.5 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              data-testid="mobile-menu-btn"
+              aria-label="打开侧边栏"
+              className="w-9 h-9 rounded-xl flex items-center justify-center sidebar-row pressable cursor-pointer shrink-0"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Menu size={19} />
+            </button>
+
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="text-base leading-none shrink-0">
+                {activeExternalApp
+                  ? activeExternalApp.emoji
+                  : activeProject
+                    ? activeProject.emoji || '📁'
+                    : assistantEmoji}
+              </span>
+              <span className="text-[14.5px] font-semibold tracking-tight truncate">
+                {activeExternalApp
+                  ? activeExternalApp.shortName
+                  : activeProject
+                    ? activeProject.name
+                    : assistantName}
+              </span>
+            </div>
+
+            {activeExternalApp ? (
+              <div className="w-9 shrink-0" />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMobileCompanionOpen(true)}
+                data-testid="mobile-status-pill"
+                aria-label="查看助手状态与动态"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11.5px] font-medium pressable cursor-pointer shrink-0"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    liveState.streaming ? 'animate-soft-breathe' : ''
+                  }`}
+                  style={{ background: mobileDotColor }}
+                />
+                <span>{mobileStatusText}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {activeExternalApp ? (
@@ -582,12 +767,14 @@ export function App() {
               status={companionStatus}
               loading={loadingStatus}
               open={rightPanelOpen}
+              mobileOpen={mobileCompanionOpen}
               live={liveState}
               projects={projects}
               activeProject={activeProject}
               canDistill={Boolean(activeProject && activeSessionId && messages.length > 0)}
               distilling={distilling}
               onToggleOpen={() => setRightPanelOpen((v) => !v)}
+              onCloseMobile={() => setMobileCompanionOpen(false)}
               onRefresh={refreshStatus}
               onEditProject={(pid) => setProjectModal({ open: true, projectId: pid })}
               onSelectProject={handleSelectProject}
@@ -652,6 +839,15 @@ export function App() {
             refreshStatus()
           }}
           onClose={() => setProjectModal({ open: false, projectId: null })}
+        />
+      )}
+
+      {pwaModalOpen && (
+        <PwaInstallModal
+          canNativeInstall={Boolean(deferredPrompt)}
+          isSecureOrigin={window.isSecureContext}
+          onTriggerNativeInstall={handleTriggerNativePwaInstall}
+          onClose={() => setPwaModalOpen(false)}
         />
       )}
     </div>

@@ -869,5 +869,8 @@ if FRONTEND_DIST.exists():
     def serve_spa(full_path: str):
         candidate = FRONTEND_DIST / full_path
         if full_path and candidate.exists() and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+            headers = {}
+            if full_path in ("sw.js", "manifest.webmanifest"):
+                headers["Cache-Control"] = "no-cache"
+            return FileResponse(candidate, headers=headers)
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})

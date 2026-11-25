@@ -4,6 +4,7 @@ import {
   Check,
   ChevronRight,
   Compass,
+  Download,
   FolderPlus,
   LogOut,
   Moon,
@@ -45,6 +46,8 @@ interface Props {
   onDeleteSession: (id: string) => void
   onSetTheme: (theme: 'light' | 'dark') => void
   onOpenSettings: (tab: 'persona' | 'account') => void
+  showInstallApp?: boolean
+  onInstallApp?: () => void
   onLogout: () => void
 }
 
@@ -96,6 +99,8 @@ export function SessionSidebar({
   onDeleteSession,
   onSetTheme,
   onOpenSettings,
+  showInstallApp,
+  onInstallApp,
   onLogout,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -598,6 +603,23 @@ export function SessionSidebar({
               <span>账号与安全</span>
             </button>
 
+            {showInstallApp && onInstallApp && (
+              <button
+                type="button"
+                data-testid="pwa-install-menu-btn"
+                onClick={() => {
+                  setMenuOpen(false)
+                  onInstallApp()
+                  if (isMobile) onCloseMobile()
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] sidebar-row cursor-pointer text-left"
+                style={{ color: 'var(--text-primary)' }}
+              >
+                <Download size={14} className="shrink-0 opacity-75" />
+                <span>安装为手机 / 桌面应用</span>
+              </button>
+            )}
+
             <div className="my-1" style={{ borderTop: '1px solid var(--border-subtle)' }} />
 
             <button
@@ -657,16 +679,27 @@ export function SessionSidebar({
         {sidebarBody(false)}
       </div>
 
-      {/* Smooth mobile slide-over drawer */}
-      {openMobile && (
-        <div className="fixed inset-0 z-40 lg:hidden flex">
-          <div className="relative z-50 h-full animate-drawer-in">{sidebarBody(true)}</div>
-          <div
-            className="flex-1 bg-black/40 backdrop-blur-[1px] animate-backdrop-in"
-            onClick={onCloseMobile}
-          />
+      {/* Smooth GPU-accelerated mobile slide-over drawer (smooth both open & close) */}
+      <div
+        className={`fixed inset-0 z-50 lg:hidden flex transition-opacity duration-200 ${
+          openMobile ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!openMobile}
+      >
+        <div
+          className="relative z-10 h-full safe-pt safe-pb transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{
+            background: 'var(--bg-sidebar)',
+            transform: openMobile ? 'translateX(0)' : 'translateX(-100%)',
+          }}
+        >
+          {sidebarBody(true)}
         </div>
-      )}
+        <div
+          className="flex-1 bg-black/40 backdrop-blur-[2px]"
+          onClick={onCloseMobile}
+        />
+      </div>
     </>
   )
 }

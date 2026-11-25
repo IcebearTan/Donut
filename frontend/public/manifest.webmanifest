@@ -1,9 +1,42 @@
 {
+  "id": "/",
   "name": "Donut · 我们的空间",
   "short_name": "Donut",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
   "background_color": "#ffffff",
-  "theme_color": "#18181b",
-  "description": "双人专属生活空间与个人 AI 陪伴助手"
+  "theme_color": "#ffffff",
+  "lang": "zh-CN",
+  "description": "个人 AI 陪伴助手与双人专属生活空间",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "主对话",
+      "short_name": "Donut",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
 }
