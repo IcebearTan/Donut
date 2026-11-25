@@ -333,26 +333,26 @@ export function CompanionPanel({
         </button>
       )}
 
-      {/* Desktop: Top-anchored, compact, airy floating companion card */}
+      {/* Desktop: Top-anchored, compact, airy floating companion card with generous shadow gutter */}
       <div
         className="hidden lg:block h-full shrink-0 overflow-hidden panel-slide"
         style={{
-          width: open ? '320px' : '0px',
+          width: open ? '342px' : '0px',
           opacity: open ? 1 : 0,
         }}
         aria-hidden={!open}
       >
         <aside
           data-testid="companion-panel"
-          className="flex flex-col justify-start w-[320px] shrink-0 h-full pt-5 pb-5 pr-5 pl-1.5 select-none"
+          className="flex flex-col justify-start w-[342px] shrink-0 h-full pt-5 pb-8 pl-6 pr-6 select-none"
         >
           <div
             data-testid="companion-floating-card"
-            className="max-h-[calc(100dvh-2.5rem)] flex flex-col rounded-3xl overflow-hidden"
+            className="max-h-[calc(100dvh-3.25rem)] flex flex-col rounded-3xl overflow-hidden"
             style={{
               background: 'var(--bg-sidebar)',
               border: '1px solid var(--border-subtle)',
-              boxShadow: 'var(--shadow-md)',
+              boxShadow: 'var(--shadow-card)',
             }}
           >
             {/* Hero Donut Presence Header */}

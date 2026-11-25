@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import {
   BookOpen,
   Check,
+  ChevronDown,
   ChevronRight,
   Compass,
+  CornerUpLeft,
   Download,
   FolderArchive,
+  FolderInput,
   FolderPlus,
+  Loader2,
   LogOut,
   Moon,
   MoreHorizontal,
@@ -45,7 +49,9 @@ interface Props {
   onEditProject: (projectId: string) => void
   onSelectSession: (id: string) => void
   onRenameSession: (id: string, title: string) => void
-  onDeleteSession: (id: string) => void
+  onMoveSession: (id: string, projectId: string | null) => Promise<void> | void
+  onAutoTitleSession: (id: string) => Promise<void> | void
+  onDeleteSession: (id: string) => Promise<void> | void
   onSetTheme: (theme: 'light' | 'dark') => void
   onOpenSettings: (tab: 'persona' | 'account') => void
   onOpenVault: (tab?: VaultTab) => void
@@ -99,6 +105,8 @@ export function SessionSidebar({
   onEditProject,
   onSelectSession,
   onRenameSession,
+  onMoveSession,
+  onAutoTitleSession,
   onDeleteSession,
   onSetTheme,
   onOpenSettings,
@@ -111,8 +119,19 @@ export function SessionSidebar({
   const [draftTitle, setDraftTitle] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
+  const [sessionMenu, setSessionMenu] = useState<{
+    session: ChatSession
+    top: number
+    left: number
+    isMobile: boolean
+  } | null>(null)
+  const [movePickerOpen, setMovePickerOpen] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<ChatSession | null>(null)
+
   const desktopMenuRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
+  const sessionMenuRef = useRef<HTMLDivElement>(null)
 
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
@@ -144,8 +163,50 @@ export function SessionSidebar({
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [menuOpen])
 
-  function startEdit(s: ChatSession, e: React.MouseEvent) {
+  useEffect(() => {
+    if (!sessionMenu) return
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as Node
+      if (sessionMenuRef.current?.contains(target)) return
+      setSessionMenu(null)
+      setMovePickerOpen(false)
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setSessionMenu(null)
+        setMovePickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [sessionMenu])
+
+  function openSessionMenu(s: ChatSession, isMobile: boolean, e: React.MouseEvent<HTMLButtonElement>) {
     e.stopPropagation()
+    if (sessionMenu?.session.id === s.id) {
+      setSessionMenu(null)
+      setMovePickerOpen(false)
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const menuWidth = 212
+    const estimatedHeight = 250
+    const left = Math.max(12, Math.min(rect.right - menuWidth + 12, window.innerWidth - menuWidth - 12))
+    const openUpward = rect.bottom + estimatedHeight > window.innerHeight - 16
+    const top = openUpward
+      ? Math.max(12, rect.top - estimatedHeight + 24)
+      : Math.min(rect.bottom + 6, window.innerHeight - estimatedHeight - 12)
+    setMovePickerOpen(false)
+    setSessionMenu({ session: s, top, left, isMobile })
+  }
+
+  function startEditSession(s: ChatSession) {
+    setSessionMenu(null)
+    setMovePickerOpen(false)
     setEditingId(s.id)
     setDraftTitle(s.title)
   }
@@ -154,6 +215,18 @@ export function SessionSidebar({
     const t = draftTitle.trim()
     if (t) onRenameSession(id, t)
     setEditingId(null)
+  }
+
+  async function handleConfirmDelete() {
+    if (!confirmDelete) return
+    const target = confirmDelete
+    setBusyAction(`delete:${target.id}`)
+    try {
+      await onDeleteSession(target.id)
+      setConfirmDelete(null)
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   function renderSessionRow(s: ChatSession, isMobile: boolean, nested = false) {
@@ -222,29 +295,26 @@ export function SessionSidebar({
             >
               {s.title}
             </span>
-            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={(e) => startEdit(s, e)}
-                title="重命名"
-                className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
-                style={{ color: 'var(--text-muted)' }}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDeleteSession(s.id)
-                }}
-                title="删除对话"
-                className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
-                style={{ color: 'var(--danger)' }}
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
+            <button
+              type="button"
+              data-testid={`session-menu-btn-${s.id}`}
+              onClick={(e) => openSessionMenu(s, isMobile, e)}
+              title="对话设置"
+              aria-label="对话设置"
+              className={`p-1 rounded-lg hover:opacity-100 pressable cursor-pointer shrink-0 transition-opacity ${
+                sessionMenu?.session.id === s.id
+                  ? 'opacity-100'
+                  : active
+                    ? 'opacity-65 lg:opacity-0 lg:group-hover:opacity-100'
+                    : 'opacity-60 lg:opacity-0 lg:group-hover:opacity-100'
+              }`}
+              style={{
+                color: 'var(--text-muted)',
+                background: sessionMenu?.session.id === s.id ? 'var(--bg-active)' : 'transparent',
+              }}
+            >
+              <MoreHorizontal size={15} />
+            </button>
           </>
         )}
       </div>
@@ -730,6 +800,256 @@ export function SessionSidebar({
           <div className="flex-1 bg-black/40 animate-backdrop-in" onClick={onCloseMobile} />
         )}
       </div>
+
+      {/* Floating viewport-fixed Session Action Popover (never clipped by sidebar scroll!) */}
+      {sessionMenu && (
+        <div
+          ref={sessionMenuRef}
+          data-testid="session-action-menu"
+          className="fixed z-50 w-[212px] rounded-2xl p-1.5 animate-pop-up select-none"
+          style={{
+            top: `${sessionMenu.top}px`,
+            left: `${sessionMenu.left}px`,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'var(--shadow-md)',
+          }}
+        >
+          <button
+            type="button"
+            data-testid="session-action-rename"
+            onClick={() => startEditSession(sessionMenu.session)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13.5px] sidebar-row cursor-pointer text-left"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <Pencil size={14} className="shrink-0 opacity-75" />
+            <span>重命名</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="session-action-autotitle"
+            disabled={busyAction !== null}
+            onClick={async () => {
+              const target = sessionMenu.session
+              setBusyAction(`title:${target.id}`)
+              try {
+                await onAutoTitleSession(target.id)
+              } finally {
+                setBusyAction(null)
+                setSessionMenu(null)
+                setMovePickerOpen(false)
+              }
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13.5px] sidebar-row cursor-pointer text-left disabled:opacity-50"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            {busyAction === `title:${sessionMenu.session.id}` ? (
+              <Loader2 size={14} className="shrink-0 animate-spin opacity-75" />
+            ) : (
+              <Sparkles size={14} className="shrink-0 opacity-75" />
+            )}
+            <span>智能提炼标题</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="session-action-move-toggle"
+            onClick={() => setMovePickerOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[13.5px] sidebar-row cursor-pointer text-left"
+            style={{
+              color: 'var(--text-primary)',
+              background: movePickerOpen ? 'var(--bg-hover)' : 'transparent',
+            }}
+          >
+            <span className="flex items-center gap-2.5 min-w-0">
+              <FolderInput size={14} className="shrink-0 opacity-75" />
+              <span className="truncate">
+                {sessionMenu.session.project_id ? '更换所属项目' : '移动到项目'}
+              </span>
+            </span>
+            {movePickerOpen ? (
+              <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />
+            ) : (
+              <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
+            )}
+          </button>
+
+          {movePickerOpen && (
+            <div
+              data-testid="session-move-project-list"
+              className="mt-1 mb-1 mx-1 p-1 rounded-xl space-y-0.5 max-h-44 overflow-y-auto"
+              style={{
+                background: 'var(--bg-sidebar)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              {projects.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const isMob = sessionMenu.isMobile
+                    setSessionMenu(null)
+                    setMovePickerOpen(false)
+                    onCreateProject()
+                    if (isMob) onCloseMobile()
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs sidebar-row cursor-pointer text-left"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <FolderPlus size={13} className="shrink-0 opacity-75" />
+                  <span>先新建一个项目…</span>
+                </button>
+              ) : (
+                <>
+                  {projects.map((p) => {
+                    const isCurrent = sessionMenu.session.project_id === p.id
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={busyAction !== null}
+                        data-testid={`move-to-project-${p.id}`}
+                        onClick={async () => {
+                          const target = sessionMenu.session
+                          if (isCurrent) {
+                            setSessionMenu(null)
+                            setMovePickerOpen(false)
+                            return
+                          }
+                          setBusyAction(`move:${p.id}`)
+                          try {
+                            await onMoveSession(target.id, p.id)
+                            setExpandedProjects((prev) => ({ ...prev, [p.id]: true }))
+                          } finally {
+                            setBusyAction(null)
+                            setSessionMenu(null)
+                            setMovePickerOpen(false)
+                          }
+                        }}
+                        className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[13px] sidebar-row cursor-pointer text-left disabled:opacity-50"
+                        style={{
+                          color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm leading-none shrink-0">{p.emoji || '📁'}</span>
+                          <span className="truncate">{p.name}</span>
+                        </span>
+                        {isCurrent && (
+                          <Check size={13} style={{ color: 'var(--success)' }} className="shrink-0" />
+                        )}
+                      </button>
+                    )
+                  })}
+
+                  {sessionMenu.session.project_id && (
+                    <button
+                      type="button"
+                      disabled={busyAction !== null}
+                      data-testid="move-out-of-project-btn"
+                      onClick={async () => {
+                        const target = sessionMenu.session
+                        setBusyAction('move:none')
+                        try {
+                          await onMoveSession(target.id, null)
+                        } finally {
+                          setBusyAction(null)
+                          setSessionMenu(null)
+                          setMovePickerOpen(false)
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12.5px] sidebar-row cursor-pointer text-left mt-0.5"
+                      style={{
+                        color: 'var(--text-muted)',
+                        borderTop: '1px solid var(--border-subtle)',
+                      }}
+                    >
+                      <CornerUpLeft size={13} className="shrink-0" />
+                      <span>移出项目</span>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="my-1" style={{ borderTop: '1px solid var(--border-subtle)' }} />
+
+          <button
+            type="button"
+            data-testid="session-action-delete"
+            onClick={() => {
+              const target = sessionMenu.session
+              setSessionMenu(null)
+              setMovePickerOpen(false)
+              setConfirmDelete(target)
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13.5px] sidebar-row cursor-pointer text-left"
+            style={{ color: 'var(--danger)' }}
+          >
+            <Trash2 size={14} className="shrink-0 opacity-85" />
+            <span>删除对话</span>
+          </button>
+        </div>
+      )}
+
+      {/* Calm in-app Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/45 animate-backdrop-in"
+          onClick={() => !busyAction && setConfirmDelete(null)}
+        >
+          <div
+            data-testid="delete-session-modal"
+            className="w-full max-w-sm rounded-2xl p-5 space-y-4 animate-modal-in"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-md)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-1.5">
+              <h3 className="text-[16px] font-semibold">删除这段对话？</h3>
+              <p className="text-[13.5px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                将永久删除「<span className="font-medium" style={{ color: 'var(--text-primary)' }}>{confirmDelete.title}</span>」，删除后聊天记录无法恢复。
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                data-testid="cancel-delete-session-btn"
+                disabled={busyAction !== null}
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 rounded-xl text-[13.5px] font-medium sidebar-row pressable cursor-pointer"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                data-testid="confirm-delete-session-btn"
+                disabled={busyAction !== null}
+                onClick={handleConfirmDelete}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13.5px] font-medium pressable cursor-pointer disabled:opacity-50"
+                style={{
+                  background: 'var(--danger)',
+                  color: '#ffffff',
+                }}
+              >
+                {busyAction === `delete:${confirmDelete.id}` && (
+                  <Loader2 size={14} className="animate-spin" />
+                )}
+                <span>确认删除</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

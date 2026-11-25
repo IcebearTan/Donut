@@ -158,6 +158,7 @@ export type StreamEvent =
   | { type: 'thinking'; delta: string }
   | { type: 'tool'; id: string; name: string; status: string }
   | { type: 'delta'; text: string }
+  | { type: 'title'; title: string }
   | { type: 'done'; usage?: ChatMessage['usage'] }
   | { type: 'error'; message: string }
 
@@ -213,6 +214,18 @@ export const api = {
     request<{ ok: boolean; title: string }>(`/portal-api/sessions/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
+    }),
+  moveSessionToProject: (id: string, project_id: string | null) =>
+    request<{ ok: boolean; title: string; project_id: string | null; session: ChatSession }>(
+      `/portal-api/sessions/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ project_id }),
+      },
+    ),
+  autoTitleSession: (id: string) =>
+    request<{ ok: boolean; title: string }>(`/portal-api/sessions/${id}/auto-title`, {
+      method: 'POST',
     }),
   deleteSession: (id: string) =>
     request<{ ok: boolean }>(`/portal-api/sessions/${id}`, { method: 'DELETE' }),

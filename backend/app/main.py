@@ -48,6 +48,7 @@ from .projects import (
     rebuild_projects_index,
 )
 from .status import get_companion_status
+from .titler import generate_smart_title
 from .vault import (
     ALLOWED_DOC_EXTS,
     ensure_user_vault,
@@ -503,8 +504,9 @@ class CreateSessionRequest(BaseModel):
     project_id: Optional[str] = Field(default=None, max_length=32)
 
 
-class RenameSessionRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=80)
+class UpdateSessionRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    project_id: Optional[str] = Field(default=None, max_length=32)
 
 
 def _require_owned_session(conn: Any, session_id: str, user_id: str) -> dict:
@@ -598,21 +600,84 @@ def create_session(
 
 
 @app.patch("/portal-api/sessions/{session_id}")
-def rename_session(
+def update_session(
     session_id: str,
-    body: RenameSessionRequest,
+    body: UpdateSessionRequest,
     user: dict = Depends(get_current_user),
 ) -> dict:
-    title = body.title.strip()
+    fields = body.model_fields_set
+    with db_session() as conn:
+        sess = _require_owned_session(conn, session_id, user["id"])
+        if sess.get("is_main"):
+            raise HTTPException(status_code=400, detail="主对话不可修改名称或移动")
+
+        new_title = sess["title"]
+        if "title" in fields and body.title is not None:
+            new_title = body.title.strip() or sess["title"]
+
+        new_pid = sess.get("project_id")
+        if "project_id" in fields:
+            pid = (body.project_id or "").strip() or None
+            if pid:
+                _require_owned_project(conn, pid, user["id"])
+            new_pid = pid
+
+        ts = now_ms()
+        conn.execute(
+            "UPDATE chat_sessions SET title = ?, project_id = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (new_title, new_pid, ts, session_id, user["id"]),
+        )
+    return {
+        "ok": True,
+        "title": new_title,
+        "project_id": new_pid,
+        "session": {
+            "id": session_id,
+            "title": new_title,
+            "space_type": sess["space_type"],
+            "project_id": new_pid,
+            "is_main": sess.get("is_main", 0),
+            "created_at": sess["created_at"],
+            "updated_at": ts,
+        },
+    }
+
+
+@app.post("/portal-api/sessions/{session_id}/auto-title")
+async def auto_title_session(
+    session_id: str, user: dict = Depends(get_current_user)
+) -> dict:
+    """Re-distill a crisp GPT-style title from the conversation's opening exchange."""
     with db_session() as conn:
         sess = _require_owned_session(conn, session_id, user["id"])
         if sess.get("is_main"):
             raise HTTPException(status_code=400, detail="主对话名称不可修改")
+        rows = conn.execute(
+            """
+            SELECT role, content
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
+            LIMIT 4
+            """,
+            (session_id,),
+        ).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="对话还没有内容，无法提炼标题")
+
+    user_text = "\n".join(str(r["content"] or "") for r in rows if r["role"] == "user")
+    asst_text = "\n".join(str(r["content"] or "") for r in rows if r["role"] == "assistant")
+    smart_title = await generate_smart_title(user_text, asst_text)
+    if not smart_title:
+        raise HTTPException(status_code=502, detail="标题提炼暂不可用，请稍后重试")
+
+    with db_session() as conn:
         conn.execute(
-            "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-            (title, now_ms(), session_id, user["id"]),
+            "UPDATE chat_sessions SET title = ? WHERE id = ? AND user_id = ?",
+            (smart_title, session_id, user["id"]),
         )
-    return {"ok": True, "title": title}
+    return {"ok": True, "title": smart_title}
 
 
 @app.delete("/portal-api/sessions/{session_id}")
@@ -865,11 +930,13 @@ async def chat_stream(
             """,
             (user_msg_id, body.session_id, display_text, json.dumps(display_image_urls), ts),
         )
-        # Auto-title non-main new sessions from first user message
+        # Auto-title non-main new sessions: fast placeholder first, then GPT-style refinement after reply
         new_title = sess["title"]
+        should_auto_title = False
         if not sess.get("is_main") and sess["title"] == "新对话" and (text or doc_display_names):
             seed_title = text or f"文件：{doc_display_names[0]}"
-            new_title = seed_title.replace("\n", " ")[:24]
+            new_title = seed_title.replace("\n", " ")[:18]
+            should_auto_title = True
         conn.execute(
             "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
             (new_title, ts, body.session_id),
@@ -978,6 +1045,17 @@ async def chat_stream(
                     "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
                     (now_ms(), body.session_id),
                 )
+
+            if should_auto_title and final_content:
+                seed_user = text or ("附件：" + ", ".join(doc_display_names))
+                smart_title = await generate_smart_title(seed_user, final_content)
+                if smart_title and smart_title != new_title:
+                    with db_session() as conn:
+                        conn.execute(
+                            "UPDATE chat_sessions SET title = ? WHERE id = ? AND user_id = ?",
+                            (smart_title, body.session_id, user["id"]),
+                        )
+                    yield f"data: {json.dumps({'type': 'title', 'title': smart_title}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_generator(),

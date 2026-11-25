@@ -268,6 +268,39 @@ export function App() {
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)))
   }
 
+  async function handleMoveSession(id: string, projectId: string | null) {
+    if (streaming) return
+    try {
+      const res = await api.moveSessionToProject(id, projectId)
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, project_id: res.project_id, updated_at: res.session.updated_at } : s,
+        ),
+      )
+      if (activeSessionId === id) {
+        setActiveProjectId(res.project_id)
+      }
+      if (projectId) {
+        const proj = projects.find((p) => p.id === projectId)
+        showToast(`已移入「${proj?.name || '项目'}」`)
+      } else {
+        showToast('已移出项目')
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '移动对话失败')
+    }
+  }
+
+  async function handleAutoTitleSession(id: string) {
+    try {
+      const res = await api.autoTitleSession(id)
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: res.title } : s)))
+      showToast(`已更新标题：${res.title}`)
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '标题提炼失败')
+    }
+  }
+
   async function handleDeleteSession(id: string) {
     if (streaming) return
     await api.deleteSession(id)
@@ -572,6 +605,10 @@ export function App() {
                 m.id === tempAsstId ? { ...m, content: m.content + ev.text } : m,
               ),
             )
+          } else if (ev.type === 'title') {
+            setSessions((prev) =>
+              prev.map((s) => (s.id === sid ? { ...s, title: ev.title } : s)),
+            )
           } else if (ev.type === 'done') {
             if (!readyToFlush) {
               bufferedDone = true
@@ -763,6 +800,8 @@ export function App() {
         onEditProject={(pid) => setProjectModal({ open: true, projectId: pid })}
         onSelectSession={handleSelectSession}
         onRenameSession={handleRenameSession}
+        onMoveSession={handleMoveSession}
+        onAutoTitleSession={handleAutoTitleSession}
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
         onOpenSettings={(tab) => setSettingsTab(tab)}
