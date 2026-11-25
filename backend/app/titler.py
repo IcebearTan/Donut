@@ -9,13 +9,43 @@ from typing import Optional
 import httpx
 
 
+def _resolve_secret(raw_val: str, oc_dir: Path, cfg_data: dict) -> str:
+    val = (raw_val or "").strip()
+    m = re.fullmatch(r"\$\{([A-Za-z0-9_]+)\}", val)
+    if not m:
+        return val
+    var = m.group(1)
+    # 1. Process environment
+    if os.environ.get(var):
+        return os.environ[var].strip()
+    # 2. openclaw.json -> env
+    env_block = cfg_data.get("env")
+    if isinstance(env_block, dict) and env_block.get(var):
+        return str(env_block[var]).strip()
+    # 3. ~/.openclaw/.env
+    dotenv = oc_dir / ".env"
+    if dotenv.exists():
+        try:
+            for line in dotenv.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == var:
+                    return v.strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return ""
+
+
 def _load_fast_llm_config() -> Optional[tuple[str, str, str]]:
     """
     Read direct OpenAI-compatible fast model credentials from OpenClaw config
     so auto-titling uses ~120 tokens (<0.6s, ~¥0.0001) without loading the
     full OpenClaw system prompt & tool schemas.
     """
-    oc_cfg = Path(os.environ.get("OPENCLAW_HOME", str(Path.home()))) / ".openclaw" / "openclaw.json"
+    oc_dir = Path(os.environ.get("OPENCLAW_HOME", str(Path.home()))) / ".openclaw"
+    oc_cfg = oc_dir / "openclaw.json"
     if not oc_cfg.exists():
         return None
     try:
@@ -36,7 +66,7 @@ def _load_fast_llm_config() -> Optional[tuple[str, str, str]]:
             if not isinstance(p, dict):
                 continue
             base_url = str(p.get("baseUrl") or "").rstrip("/")
-            api_key = str(p.get("apiKey") or "").strip()
+            api_key = _resolve_secret(str(p.get("apiKey") or ""), oc_dir, data)
             models = p.get("models") or []
             if not base_url or not api_key or not models:
                 continue
@@ -101,7 +131,7 @@ async def generate_smart_title(
             {"role": "user", "content": prompt_user},
         ],
         "temperature": 0.2,
-        "max_tokens": 36,
+        "max_tokens": 64,
         "stream": False,
     }
 
