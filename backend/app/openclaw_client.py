@@ -129,7 +129,6 @@ async def _watch_gateway_tool_events(
 
     ws_url = _gateway_ws_url()
     seen_started: set[str] = set()
-    last_assistant_item_id: str | None = None
     try:
         async with websockets.connect(
             ws_url, open_timeout=3.0, close_timeout=1.5, ping_interval=20
@@ -231,12 +230,6 @@ async def _watch_gateway_tool_events(
                                 {"id": call_id, "name": name, "status": "done"},
                             )
                         )
-                elif stream_kind == "assistant":
-                    item_id = data.get("itemId")
-                    if isinstance(item_id, str) and item_id:
-                        if last_assistant_item_id and item_id != last_assistant_item_id:
-                            await queue.put(("http_boundary", None))
-                        last_assistant_item_id = item_id
     except asyncio.CancelledError:
         ready_event.set()
         return
