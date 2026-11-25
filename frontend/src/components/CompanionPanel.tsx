@@ -409,7 +409,7 @@ export function CompanionPanel({
           </div>
         ) : (
           <div className="space-y-1.5">
-            {status.activities.map((item) => (
+            {status.activities.slice(0, isMobile ? 5 : 3).map((item) => (
               <div
                 key={item.id}
                 className="flex items-start gap-2 px-3 lg:px-2.5 py-2 rounded-xl text-xs"
@@ -477,64 +477,39 @@ export function CompanionPanel({
         </button>
       )}
 
-      {/* Desktop: Smooth animated collapsible right companion card */}
+      {/* Desktop: Smooth animated floating self-sized companion card */}
       <div
         className="hidden lg:block h-full shrink-0 overflow-hidden panel-slide"
         style={{
-          width: open ? '272px' : '0px',
+          width: open ? '320px' : '0px',
           opacity: open ? 1 : 0,
         }}
         aria-hidden={!open}
       >
         <aside
           data-testid="companion-panel"
-          className="flex flex-col w-[272px] shrink-0 h-full py-3.5 pr-3.5 pl-1 select-none"
+          className="flex flex-col justify-center w-[320px] shrink-0 h-full py-6 pr-5 pl-1.5 select-none"
         >
           <div
-            className="flex-1 min-h-0 flex flex-col rounded-2xl overflow-hidden"
+            data-testid="companion-floating-card"
+            className="max-h-full flex flex-col rounded-3xl overflow-hidden"
             style={{
               background: 'var(--bg-sidebar)',
               border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-md)',
             }}
           >
-            {/* Companion header */}
+            {/* Hero Donut Presence Header */}
             <div
-              className="px-4 py-3.5 flex items-center justify-between gap-2 shrink-0"
+              className="px-5 pt-5 pb-4 relative flex flex-col items-center text-center shrink-0"
               style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
-                  style={{
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  {assistantEmoji}
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[13.5px] font-semibold truncate leading-tight">
-                    {assistantName}
-                  </div>
-                  <div
-                    className="flex items-center gap-1.5 text-[11px] mt-0.5 truncate"
-                    style={{ color: 'var(--text-muted)' }}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${live.streaming ? 'animate-soft-breathe' : ''}`}
-                      style={{ background: dotColor }}
-                    />
-                    <span className="truncate">{presenceText}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-0.5 shrink-0">
+              <div className="absolute top-3 right-3 flex items-center gap-0.5">
                 <button
                   type="button"
                   onClick={onRefresh}
                   title="刷新状态"
-                  className="p-1.5 rounded-lg sidebar-row pressable cursor-pointer"
+                  className="w-7 h-7 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -544,11 +519,44 @@ export function CompanionPanel({
                   onClick={onToggleOpen}
                   title="收起状态卡片"
                   data-testid="companion-collapse-btn"
-                  className="p-1.5 rounded-lg sidebar-row pressable cursor-pointer"
+                  className="w-7 h-7 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <PanelRightClose size={14} />
                 </button>
+              </div>
+
+              <div
+                data-testid="companion-hero-avatar"
+                className={`w-16 h-16 rounded-full flex items-center justify-center text-4xl shrink-0 ${
+                  live.streaming ? 'donut-ring-active' : ''
+                }`}
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                {assistantEmoji}
+              </div>
+
+              <div className="text-[16px] font-semibold tracking-tight mt-2.5 leading-tight">
+                {assistantName}
+              </div>
+
+              <div
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11.5px] font-medium mt-1.5 max-w-full"
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${live.streaming ? 'animate-soft-breathe' : ''}`}
+                  style={{ background: dotColor }}
+                />
+                <span className="truncate">{presenceText}</span>
               </div>
             </div>
 
@@ -588,23 +596,26 @@ export function CompanionPanel({
           </div>
 
           <div
-            className="px-4 py-2.5 flex items-center justify-between gap-2 shrink-0"
+            className="px-4 py-3 flex items-center justify-between gap-2 shrink-0"
             style={{ borderBottom: '1px solid var(--border-subtle)' }}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
               <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
+                className={`w-11 h-11 rounded-full flex items-center justify-center text-2xl shrink-0 ${
+                  live.streaming ? 'donut-ring-active' : ''
+                }`}
                 style={{
                   background: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
                 {assistantEmoji}
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold truncate">{assistantName}</div>
+                <div className="text-[15px] font-semibold truncate">{assistantName}</div>
                 <div
-                  className="flex items-center gap-1.5 text-[11px] truncate"
+                  className="flex items-center gap-1.5 text-xs mt-0.5 truncate"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   <span

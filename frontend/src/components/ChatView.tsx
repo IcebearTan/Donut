@@ -143,7 +143,7 @@ function ThinkingBlock({
 
   return (
     <div
-      className="mb-2.5 rounded-xl overflow-hidden text-xs"
+      className="mb-2.5 rounded-2xl overflow-hidden text-[13px] max-w-full"
       style={{
         background: 'var(--bg-think)',
         border: '1px solid var(--border-subtle)',
@@ -152,12 +152,12 @@ function ThinkingBlock({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-1.5 px-3 py-2 text-left cursor-pointer"
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left cursor-pointer"
         style={{ color: 'var(--text-secondary)' }}
       >
-        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Sparkles size={13} />
-        <span className="font-medium">
+        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <Sparkles size={14} />
+        <span className="font-medium tabular-nums">
           {isStreaming
             ? `已思考 ${elapsedSec ?? 0} 秒…`
             : elapsedSec && elapsedSec > 0
@@ -167,7 +167,7 @@ function ThinkingBlock({
       </button>
       {open && (
         <div
-          className="px-3.5 pb-3 pt-1 whitespace-pre-wrap leading-relaxed"
+          className="px-4 pb-3.5 pt-2 whitespace-pre-wrap leading-relaxed"
           style={{
             color: 'var(--text-secondary)',
             borderTop: '1px solid var(--border-subtle)',
@@ -219,33 +219,44 @@ function LiveWaitingBanner({
     suffix = ' · 连接正常'
   } else if (elapsedSec >= 2 || inlineAfterText) {
     phaseKey = inlineAfterText ? 'continuing' : 'thinking'
-    label = inlineAfterText ? '正在整理下一步' : '已思考'
+    label = inlineAfterText ? '正在继续思考与整理' : '已思考'
     showSec = elapsedSec >= 2
   }
 
   return (
     <div
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs ${
-        inlineAfterText ? 'mt-2.5' : 'animate-asst-arrive'
+      data-testid="thinking-bubble"
+      className={`inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl rounded-tl-sm text-[14.5px] leading-snug ${
+        inlineAfterText ? 'mt-2.5 animate-msg-in' : 'animate-asst-arrive'
       }`}
       style={{
-        background: 'var(--bg-think)',
-        border: '1px solid var(--border-subtle)',
+        background: 'var(--bg-assistant-bubble)',
+        border: '1px solid var(--border-assistant-bubble)',
+        boxShadow: 'var(--shadow-bubble)',
         color: 'var(--text-secondary)',
       }}
     >
       <span
-        className="w-2 h-2 rounded-full shrink-0 animate-soft-breathe"
+        className="w-2.5 h-2.5 rounded-full shrink-0 animate-soft-breathe"
         style={{ background: '#f59e0b' }}
       />
-      <span key={phaseKey} className="animate-receipt-in inline-flex items-center gap-1">
+      <span key={phaseKey} className="animate-receipt-in inline-flex items-center gap-1.5">
         <span>{label}</span>
         {showSec && (
-          <span className="tabular-nums" style={{ color: 'var(--text-muted)' }}>
+          <span className="tabular-nums text-[13.5px]" style={{ color: 'var(--text-muted)' }}>
             {phaseKey === 'thinking' ? `${elapsedSec} 秒…` : `(${elapsedSec}s)`}
           </span>
         )}
-        {suffix && <span style={{ color: 'var(--text-muted)' }}>{suffix}</span>}
+        {suffix && (
+          <span className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
+            {suffix}
+          </span>
+        )}
+      </span>
+      <span className="inline-flex items-center gap-1 ml-0.5" aria-hidden="true">
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="typing-dot" />
       </span>
     </div>
   )
@@ -262,6 +273,8 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
   const [liveSec, setLiveSec] = useState(() =>
     msg.startedAt ? Math.max(0, Math.floor((Date.now() - msg.startedAt) / 1000)) : 0,
   )
+  // Keep showing the thinking bubble after Donut sends its first planning sentence and pauses to work/reason
+  const [waitingBetweenBatches, setWaitingBetweenBatches] = useState(false)
 
   useEffect(() => {
     if (!msg.streaming || !msg.startedAt) return
@@ -271,23 +284,44 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
     return () => window.clearInterval(timer)
   }, [msg.streaming, msg.startedAt])
 
+  useEffect(() => {
+    if (!msg.streaming || !hasContent) {
+      setWaitingBetweenBatches(false)
+      return
+    }
+    setWaitingBetweenBatches(false)
+    const pauseTimer = window.setTimeout(() => {
+      setWaitingBetweenBatches(true)
+    }, 650)
+    return () => window.clearTimeout(pauseTimer)
+  }, [msg.streaming, hasContent, msg.content])
+
   const finalSec =
     msg.usage?.elapsed_ms != null
       ? Math.max(1, Math.round(msg.usage.elapsed_ms / 1000))
       : liveSec
 
+  const showPostTextThinking =
+    Boolean(msg.streaming) &&
+    hasContent &&
+    (Boolean(runningTool) || waitingBetweenBatches)
+
   return (
-    <div className="flex gap-2.5 sm:gap-3 max-w-3xl w-full mx-auto animate-asst-arrive">
+    <div className="flex items-start gap-3 sm:gap-3.5 max-w-3xl w-full mx-auto animate-asst-arrive">
       <div
-        className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm mt-0.5 select-none"
+        data-testid="assistant-avatar"
+        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full shrink-0 flex items-center justify-center text-lg sm:text-xl mt-0.5 select-none ${
+          msg.streaming ? 'donut-ring-active' : ''
+        }`}
         style={{
-          background: 'var(--bg-elevated)',
+          background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',
+          boxShadow: 'var(--shadow-sm)',
         }}
       >
         {assistantEmoji}
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col items-start">
         {hasThinking && (
           <ThinkingBlock
             thinking={msg.thinking!}
@@ -322,69 +356,79 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
 
         {hasContent ? (
           <>
-            <div className="md-body">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  pre: ({ children }) => <>{children}</>,
-                  a: ({ href, children, ...rest }) => {
-                    if (
-                      href &&
-                      (href.startsWith('/portal-api/files/') ||
-                        href.startsWith('/portal-api/vault/download/'))
-                    ) {
-                      return (
-                        <a
-                          href={href}
-                          download
-                          className="my-2 inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium no-underline pressable"
-                          style={{
-                            background: 'var(--bg-elevated)',
-                            border: '1px solid var(--border-strong)',
-                            color: 'var(--text-primary)',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          <FileText size={16} className="shrink-0 opacity-80" />
-                          <span className="truncate max-w-[240px] sm:max-w-[360px]">
-                            {children}
-                          </span>
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs shrink-0"
+            <div
+              data-testid="assistant-bubble"
+              className="max-w-full sm:max-w-[92%] px-4 sm:px-4.5 py-3 rounded-2xl rounded-tl-sm overflow-x-auto"
+              style={{
+                background: 'var(--bg-assistant-bubble)',
+                border: '1px solid var(--border-assistant-bubble)',
+                boxShadow: 'var(--shadow-bubble)',
+              }}
+            >
+              <div className="md-body">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    pre: ({ children }) => <>{children}</>,
+                    a: ({ href, children, ...rest }) => {
+                      if (
+                        href &&
+                        (href.startsWith('/portal-api/files/') ||
+                          href.startsWith('/portal-api/vault/download/'))
+                      ) {
+                        return (
+                          <a
+                            href={href}
+                            download
+                            className="my-2 inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-medium no-underline pressable"
                             style={{
-                              background: 'var(--accent)',
-                              color: 'var(--accent-contrast)',
+                              background: 'var(--bg-surface)',
+                              border: '1px solid var(--border-strong)',
+                              color: 'var(--text-primary)',
+                              textDecoration: 'none',
                             }}
                           >
-                            <Download size={11} />
-                            <span>下载</span>
-                          </span>
+                            <FileText size={16} className="shrink-0 opacity-80" />
+                            <span className="truncate max-w-[220px] sm:max-w-[340px]">
+                              {children}
+                            </span>
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs shrink-0"
+                              style={{
+                                background: 'var(--accent)',
+                                color: 'var(--accent-contrast)',
+                              }}
+                            >
+                              <Download size={11} />
+                              <span>下载</span>
+                            </span>
+                          </a>
+                        )
+                      }
+                      return (
+                        <a href={href} target="_blank" rel="noreferrer" {...rest}>
+                          {children}
                         </a>
                       )
-                    }
-                    return (
-                      <a href={href} target="_blank" rel="noreferrer" {...rest}>
-                        {children}
-                      </a>
-                    )
-                  },
-                  code: ({ className, children, ...rest }) => {
-                    const isBlock = Boolean(className) || String(children).includes('\n')
-                    if (isBlock) {
-                      return <CodeBlock className={className}>{children}</CodeBlock>
-                    }
-                    return (
-                      <code className={className} {...rest}>
-                        {children}
-                      </code>
-                    )
-                  },
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
+                    },
+                    code: ({ className, children, ...rest }) => {
+                      const isBlock = Boolean(className) || String(children).includes('\n')
+                      if (isBlock) {
+                        return <CodeBlock className={className}>{children}</CodeBlock>
+                      }
+                      return (
+                        <code className={className} {...rest}>
+                          {children}
+                        </code>
+                      )
+                    },
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+              </div>
             </div>
-            {msg.streaming && runningTool && (
+            {showPostTextThinking && (
               <LiveWaitingBanner
                 assistantName={assistantName}
                 startedAt={msg.startedAt || msg.created_at}
@@ -394,7 +438,7 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
             )}
             {!msg.streaming && !hasThinking && msg.usage?.elapsed_ms && msg.usage.elapsed_ms >= 3000 && (
               <div
-                className="mt-1.5 inline-flex items-center gap-1 text-[11px]"
+                className="mt-1.5 ml-1 inline-flex items-center gap-1 text-[11px]"
                 style={{ color: 'var(--text-muted)' }}
               >
                 <Clock size={10} />
@@ -601,12 +645,13 @@ export function ChatView({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
       {messages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 pb-8 text-center animate-msg-in">
+        <div className="flex-1 flex flex-col items-center justify-center px-4 pt-20 lg:pt-0 pb-8 text-center animate-msg-in">
           <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-4"
+            className="w-16 h-16 rounded-full flex items-center justify-center text-4xl mb-4"
             style={{
-              background: 'var(--bg-elevated)',
+              background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-sm)',
             }}
           >
             {activeProject ? activeProject.emoji || '📁' : assistantEmoji}
@@ -661,7 +706,7 @@ export function ChatView({
           onScroll={handleChatScroll}
           className="chat-scroll flex-1 min-h-0 overflow-y-auto overscroll-none"
         >
-          <div className="px-4 sm:px-6 pt-4 lg:pt-8 pb-6 space-y-4 sm:space-y-5">
+          <div className="px-4 sm:px-6 pt-[88px] lg:pt-8 pb-6 space-y-4 sm:space-y-5">
             {messages.map((m, idx) => {
               const prev = idx > 0 ? messages[idx - 1] : null
               const showTimeDivider =
@@ -696,10 +741,14 @@ export function ChatView({
         </div>
       )}
 
-      {/* Composer */}
-      <div className="shrink-0 px-3 sm:px-6 pt-1.5 safe-pb sm:pb-5">
+      {/* Full-Pill Capsule Composer with subtle bottom fade */}
+      <div
+        className="shrink-0 px-3 sm:px-6 pt-2 safe-pb sm:pb-5 relative z-10"
+        style={{ background: 'var(--composer-fade-bg)' }}
+      >
         <div
-          className="max-w-3xl mx-auto rounded-[24px] p-2 sm:p-2.5 transition-all duration-150 focus-within:border-[var(--text-muted)]"
+          data-testid="capsule-composer"
+          className="max-w-3xl mx-auto rounded-[28px] px-2 py-1.5 sm:px-2.5 sm:py-2 transition-all duration-150 focus-within:border-[var(--text-muted)]"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-strong)',
@@ -707,14 +756,14 @@ export function ChatView({
           }}
         >
           {pendingFiles.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 px-1.5 pb-2.5">
+            <div className="flex flex-wrap items-center gap-2 px-2 pb-2 pt-1">
               {pendingFiles.map((f) =>
                 f.is_image ? (
                   <div key={f.id} className="relative group">
                     <img
                       src={f.url}
                       alt={f.name}
-                      className="w-14 h-14 rounded-lg object-cover"
+                      className="w-14 h-14 rounded-xl object-cover"
                       style={{ border: '1px solid var(--border-subtle)' }}
                     />
                     <button
@@ -734,7 +783,7 @@ export function ChatView({
                 ) : (
                   <div
                     key={f.id}
-                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-xl text-xs max-w-[210px]"
+                    className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-xs max-w-[210px]"
                     style={{
                       background: 'var(--bg-elevated)',
                       border: '1px solid var(--border-subtle)',
@@ -772,9 +821,9 @@ export function ChatView({
               type="button"
               disabled={uploading || streaming || pendingFiles.length >= 10}
               onClick={() => fileRef.current?.click()}
-              title="上传图片或文件（支持 PDF / Excel / Word / 截图粘贴）"
+              title="上传图片或文件（支持 Ctrl+V 直接粘贴截图）"
               data-testid="chat-upload-btn"
-              className="p-2 rounded-xl sidebar-row pressable disabled:opacity-40 cursor-pointer shrink-0"
+              className="w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable disabled:opacity-40 cursor-pointer shrink-0"
               style={{ color: 'var(--text-secondary)' }}
             >
               {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
@@ -789,10 +838,10 @@ export function ChatView({
               onPaste={handlePaste}
               placeholder={
                 activeProject
-                  ? `在「${activeProject.name}」中给 ${assistantName} 发消息…`
-                  : `给 ${assistantName} 发消息，或直接丢入发票 / PDF / 表格…`
+                  ? `在「${activeProject.name}」里继续聊…`
+                  : `给 ${assistantName} 发消息…`
               }
-              className="flex-1 resize-none overflow-y-hidden bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-40"
+              className="flex-1 resize-none overflow-y-hidden bg-transparent outline-none text-[15px] leading-relaxed py-1.5 px-1 max-h-40"
               style={{ color: 'var(--text-primary)' }}
             />
 
@@ -801,13 +850,15 @@ export function ChatView({
                 type="button"
                 onClick={onStop}
                 title="停止生成"
-                className="p-2 rounded-xl shrink-0 pressable cursor-pointer"
+                data-testid="chat-stop-btn"
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 pressable cursor-pointer"
                 style={{
                   background: 'var(--accent)',
                   color: 'var(--accent-contrast)',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
-                <Square size={16} fill="currentColor" />
+                <Square size={14} fill="currentColor" />
               </button>
             ) : (
               <button
@@ -815,13 +866,15 @@ export function ChatView({
                 disabled={!input.trim() && pendingFiles.length === 0}
                 onClick={submit}
                 title="发送"
-                className="p-2 rounded-xl shrink-0 pressable disabled:opacity-30 cursor-pointer"
+                data-testid="chat-send-btn"
+                className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 pressable disabled:opacity-25 cursor-pointer"
                 style={{
                   background: 'var(--accent)',
                   color: 'var(--accent-contrast)',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
-                <ArrowUp size={18} />
+                <ArrowUp size={18} strokeWidth={2.25} />
               </button>
             )}
           </div>

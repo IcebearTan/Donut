@@ -793,56 +793,101 @@ export function App() {
           </button>
         )}
 
-        {/* Native-grade mobile top bar — solid surface + z-10 to prevent WebView backdrop-filter bleed */}
-        <div
-          className="lg:hidden safe-pt shrink-0 relative z-10"
-          style={{
-            background: 'var(--bg-page)',
-            borderBottom: '1px solid var(--border-subtle)',
-          }}
-        >
-          <div className="h-12 px-2.5 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setMobileSidebarOpen(true)}
-              data-testid="mobile-menu-btn"
-              aria-label="打开侧边栏"
-              className="w-9 h-9 rounded-xl flex items-center justify-center sidebar-row pressable cursor-pointer shrink-0"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              <Menu size={19} />
-            </button>
+        {/* Native-grade mobile top bar:
+            - Chat view: taller, mathematically centered larger Donut hero avatar, borderless top-down gradient fade
+            - External app (I-land): compact solid bar so iframe HUD is never overlapped */}
+        {activeExternalApp ? (
+          <div
+            className="lg:hidden safe-pt shrink-0 relative z-10"
+            style={{
+              background: 'var(--bg-page)',
+              borderBottom: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div className="h-12 px-3 grid grid-cols-[1fr_auto_1fr] items-center">
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(true)}
+                data-testid="mobile-menu-btn"
+                aria-label="打开侧边栏"
+                className="justify-self-start w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Menu size={19} />
+              </button>
 
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-base leading-none shrink-0">
-                {activeExternalApp
-                  ? activeExternalApp.emoji
-                  : activeProject
-                    ? activeProject.emoji || '📁'
-                    : assistantEmoji}
-              </span>
-              <span className="text-[14.5px] font-semibold tracking-tight truncate">
-                {activeExternalApp
-                  ? activeExternalApp.shortName
-                  : activeProject
-                    ? activeProject.name
-                    : assistantName}
-              </span>
+              <div className="justify-self-center flex items-center gap-1.5 min-w-0">
+                <span className="text-base leading-none shrink-0">{activeExternalApp.emoji}</span>
+                <span className="text-[14.5px] font-semibold tracking-tight truncate">
+                  {activeExternalApp.shortName}
+                </span>
+              </div>
+
+              <div />
             </div>
+          </div>
+        ) : (
+          <header
+            data-testid="mobile-gradient-header"
+            className="lg:hidden absolute top-0 inset-x-0 z-20 safe-pt pb-5 pointer-events-none"
+            style={{ background: 'var(--header-fade-bg)' }}
+          >
+            <div className="px-3 pt-2 min-h-[66px] grid grid-cols-[1fr_auto_1fr] items-center">
+              <button
+                type="button"
+                onClick={() => setMobileSidebarOpen(true)}
+                data-testid="mobile-menu-btn"
+                aria-label="打开侧边栏"
+                className="justify-self-start pointer-events-auto w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
+                style={{
+                  color: 'var(--text-secondary)',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                <Menu size={18} />
+              </button>
 
-            {activeExternalApp ? (
-              <div className="w-9 shrink-0" />
-            ) : (
+              <button
+                type="button"
+                onClick={() => setMobileCompanionOpen(true)}
+                data-testid="mobile-center-hero"
+                aria-label="查看助手状态与动态"
+                className="justify-self-center pointer-events-auto flex flex-col items-center gap-0.5 pressable cursor-pointer min-w-0"
+              >
+                <span
+                  data-testid="mobile-hero-avatar"
+                  className={`w-11 h-11 rounded-full flex items-center justify-center text-2xl leading-none shrink-0 ${
+                    liveState.streaming ? 'donut-ring-active' : ''
+                  }`}
+                  style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    boxShadow: 'var(--shadow-sm)',
+                  }}
+                >
+                  {activeProject ? activeProject.emoji || '📁' : assistantEmoji}
+                </span>
+                <span
+                  className="text-[11.5px] font-medium tracking-tight truncate max-w-[140px] leading-tight"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {activeProject ? activeProject.name : assistantName}
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setMobileCompanionOpen(true)}
                 data-testid="mobile-status-pill"
                 aria-label="查看助手状态与动态"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11.5px] font-medium pressable cursor-pointer shrink-0"
+                className="justify-self-end pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium pressable cursor-pointer shrink-0"
                 style={{
-                  background: 'var(--bg-elevated)',
+                  background: 'var(--bg-surface)',
                   color: 'var(--text-secondary)',
                   border: '1px solid var(--border-subtle)',
+                  boxShadow: 'var(--shadow-sm)',
                 }}
               >
                 <span
@@ -853,9 +898,9 @@ export function App() {
                 />
                 <span>{mobileStatusText}</span>
               </button>
-            )}
-          </div>
-        </div>
+            </div>
+          </header>
+        )}
 
         {activeExternalApp ? (
           <div className="flex-1 flex flex-col min-h-0 relative">
