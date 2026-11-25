@@ -43,14 +43,33 @@ def init_db() -> None:
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                name TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '📁',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(user_id, slug),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_projects_user_updated
+                ON projects(user_id, updated_at DESC);
+
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 space_type TEXT NOT NULL DEFAULT 'personal',
                 title TEXT NOT NULL DEFAULT '新对话',
+                project_id TEXT DEFAULT NULL,
+                is_main INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
@@ -74,14 +93,33 @@ def init_db() -> None:
             """
         )
         # Idempotent schema migrations for existing SQLite databases
-        cols = {
+        user_cols = {
             r["name"]
             for r in conn.execute("PRAGMA table_info(users)").fetchall()
         }
-        if "assistant_emoji" not in cols:
+        if "assistant_emoji" not in user_cols:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN assistant_emoji TEXT NOT NULL DEFAULT '🍩'"
             )
+
+        sess_cols = {
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(chat_sessions)").fetchall()
+        }
+        if "project_id" not in sess_cols:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN project_id TEXT DEFAULT NULL"
+            )
+        if "is_main" not in sess_cols:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN is_main INTEGER NOT NULL DEFAULT 0"
+            )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_project
+                ON chat_sessions(user_id, project_id, updated_at DESC)
+            """
+        )
 
 
 def now_ms() -> int:

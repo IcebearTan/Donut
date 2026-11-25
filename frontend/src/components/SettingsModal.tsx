@@ -120,11 +120,11 @@ export function SettingsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 backdrop-blur-[2px] animate-backdrop-in"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+        className="w-full max-w-lg rounded-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto animate-modal-in"
         style={{
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',

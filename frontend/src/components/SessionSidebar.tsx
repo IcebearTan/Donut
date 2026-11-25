@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  BookOpen,
   Check,
+  ChevronRight,
+  Compass,
+  FolderPlus,
   LogOut,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
+  Plus,
   SlidersHorizontal,
   Sparkles,
   SquarePen,
@@ -13,12 +18,14 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import type { ChatSession, PortalAppItem, UserProfile } from '../api/client'
+import type { ChatSession, PortalAppItem, ProjectItem, UserProfile } from '../api/client'
 
 interface Props {
   user: UserProfile
   apps: PortalAppItem[]
   activeAppId: string
+  projects: ProjectItem[]
+  activeProjectId: string | null
   sessions: ChatSession[]
   activeSessionId: string | null
   theme: 'light' | 'dark'
@@ -27,7 +34,12 @@ interface Props {
   onToggleDesktop: () => void
   onCloseMobile: () => void
   onSelectApp: (app: PortalAppItem) => void
-  onNewSession: () => void
+  onSelectMainSession: () => void
+  onNewStandaloneSession: () => void
+  onSelectProject: (projectId: string) => void
+  onNewProjectSession: (projectId: string) => void
+  onCreateProject: () => void
+  onEditProject: (projectId: string) => void
   onSelectSession: (id: string) => void
   onRenameSession: (id: string, title: string) => void
   onDeleteSession: (id: string) => void
@@ -63,6 +75,8 @@ export function SessionSidebar({
   user,
   apps,
   activeAppId,
+  projects,
+  activeProjectId,
   sessions,
   activeSessionId,
   theme,
@@ -71,7 +85,12 @@ export function SessionSidebar({
   onToggleDesktop,
   onCloseMobile,
   onSelectApp,
-  onNewSession,
+  onSelectMainSession,
+  onNewStandaloneSession,
+  onSelectProject,
+  onNewProjectSession,
+  onCreateProject,
+  onEditProject,
   onSelectSession,
   onRenameSession,
   onDeleteSession,
@@ -82,12 +101,25 @@ export function SessionSidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
   const menuWrapRef = useRef<HTMLDivElement>(null)
 
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
   const externalApps = apps.filter((a) => a.type === 'link')
-  const grouped = groupSessionsByDate(sessions)
+
+  const mainSession = sessions.find((s) => Boolean(s.is_main)) || null
+  const standaloneSessions = sessions.filter((s) => !s.is_main && !s.project_id)
+  const groupedStandalone = groupSessionsByDate(standaloneSessions)
+
+  // Auto-expand active project in sidebar
+  useEffect(() => {
+    if (activeProjectId) {
+      setExpandedProjects((prev) =>
+        prev[activeProjectId] ? prev : { ...prev, [activeProjectId]: true },
+      )
+    }
+  }, [activeProjectId])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -112,9 +144,100 @@ export function SessionSidebar({
     setEditingId(null)
   }
 
+  function renderSessionRow(s: ChatSession, isMobile: boolean, nested = false) {
+    const active = activeAppId === 'donut' && s.id === activeSessionId
+    const isEditing = editingId === s.id
+    return (
+      <div
+        key={s.id}
+        data-active={active ? 'true' : 'false'}
+        onClick={() => {
+          if (!isEditing) {
+            onSelectSession(s.id)
+            if (isMobile) onCloseMobile()
+          }
+        }}
+        className={`group flex items-center gap-2 rounded-xl text-sm cursor-pointer sidebar-row ${
+          nested ? 'px-2.5 py-1.5' : 'px-2.5 py-2'
+        }`}
+        style={{
+          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        }}
+      >
+        {isEditing ? (
+          <div
+            className="flex-1 flex items-center gap-1 min-w-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              autoFocus
+              value={draftTitle}
+              onChange={(e) => setDraftTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitEdit(s.id)
+                if (e.key === 'Escape') setEditingId(null)
+              }}
+              className="flex-1 min-w-0 px-1.5 py-0.5 text-xs rounded outline-none"
+              style={{
+                background: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-strong)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => commitEdit(s.id)}
+              className="p-1 pressable cursor-pointer"
+              style={{ color: 'var(--success)' }}
+            >
+              <Check size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditingId(null)}
+              className="p-1 pressable cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <span className={`flex-1 truncate leading-snug ${nested ? 'text-[12.5px]' : 'text-[13.5px]'}`}>
+              {s.title}
+            </span>
+            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={(e) => startEdit(s, e)}
+                title="重命名"
+                className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDeleteSession(s.id)
+                }}
+                title="删除对话"
+                className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                style={{ color: 'var(--danger)' }}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   const sidebarBody = (isMobile: boolean) => (
     <aside
-      className="h-full w-[260px] flex flex-col select-none"
+      className="h-full w-[264px] flex flex-col select-none shrink-0"
       style={{
         background: 'var(--bg-sidebar)',
         borderRight: '1px solid var(--border-subtle)',
@@ -125,12 +248,12 @@ export function SessionSidebar({
         <button
           type="button"
           onClick={() => {
-            onNewSession()
+            onSelectMainSession()
             if (isMobile) onCloseMobile()
           }}
           className="flex items-center gap-2 px-1.5 py-1 rounded-lg text-sm font-semibold tracking-tight sidebar-row cursor-pointer"
           style={{ color: 'var(--text-primary)' }}
-          title="回到新对话"
+          title="回到主对话"
         >
           <span className="text-base leading-none">{assistantEmoji}</span>
           <span className="truncate max-w-[155px]">{assistantName}</span>
@@ -140,24 +263,62 @@ export function SessionSidebar({
           type="button"
           onClick={isMobile ? onCloseMobile : onToggleDesktop}
           title="收起侧边栏"
-          className="p-1.5 rounded-lg sidebar-row cursor-pointer"
+          data-testid="sidebar-collapse-btn"
+          className="p-1.5 rounded-lg sidebar-row pressable cursor-pointer"
           style={{ color: 'var(--text-muted)' }}
         >
           {isMobile ? <X size={16} /> : <PanelLeftClose size={16} />}
         </button>
       </div>
 
-      {/* Primary actions (New Chat + Island + future M2 Projects slot) */}
+      {/* Primary nav: Main Stream (游龙) + New Chat + I-land */}
       <div className="px-2 pb-2 space-y-0.5 shrink-0">
         <button
           type="button"
+          data-testid="main-chat-nav"
+          data-active={
+            activeAppId === 'donut' && Boolean(mainSession && activeSessionId === mainSession.id)
+              ? 'true'
+              : 'false'
+          }
           onClick={() => {
-            onNewSession()
+            onSelectMainSession()
             if (isMobile) onCloseMobile()
           }}
-          data-active={activeAppId === 'donut' && activeSessionId === null ? 'true' : 'false'}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
+          className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
           style={{ color: 'var(--text-primary)' }}
+        >
+          <span className="flex items-center gap-2.5 min-w-0">
+            <Compass size={15} className="shrink-0 opacity-80" />
+            <span className="truncate">主对话</span>
+          </span>
+          {projects.length > 0 && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              游龙
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          data-testid="new-chat-btn"
+          data-active={
+            activeAppId === 'donut' && activeSessionId === null && activeProjectId === null
+              ? 'true'
+              : 'false'
+          }
+          onClick={() => {
+            onNewStandaloneSession()
+            if (isMobile) onCloseMobile()
+          }}
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
+          style={{ color: 'var(--text-secondary)' }}
         >
           <SquarePen size={15} className="shrink-0 opacity-80" />
           <span>新对话</span>
@@ -194,15 +355,147 @@ export function SessionSidebar({
         })}
       </div>
 
-      {/* Conversation history grouped by date */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1">
-        {sessions.length === 0 ? (
-          <div className="px-3 py-10 text-center text-xs" style={{ color: 'var(--text-muted)' }}>
-            发一句话开始新对话
+      {/* Scrollable Projects + History */}
+      <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1 space-y-4">
+        {/* Projects section */}
+        <div>
+          <div className="px-2.5 pb-1 flex items-center justify-between">
+            <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
+              项目
+            </span>
+            <button
+              type="button"
+              data-testid="create-project-btn"
+              onClick={() => {
+                onCreateProject()
+                if (isMobile) onCloseMobile()
+              }}
+              title="新建项目记忆空间"
+              className="p-1 rounded-md sidebar-row pressable cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <FolderPlus size={13} />
+            </button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {grouped.map((group) => (
+
+          {projects.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                onCreateProject()
+                if (isMobile) onCloseMobile()
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs sidebar-row cursor-pointer text-left"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              <Plus size={13} />
+              <span>创建第一个项目记忆…</span>
+            </button>
+          ) : (
+            <div className="space-y-0.5">
+              {projects.map((p) => {
+                const projSessions = sessions.filter((s) => s.project_id === p.id && !s.is_main)
+                const isExpanded = Boolean(expandedProjects[p.id])
+                const isActiveProj = activeAppId === 'donut' && activeProjectId === p.id
+
+                return (
+                  <div key={p.id}>
+                    <div
+                      data-active={isActiveProj && !activeSessionId ? 'true' : 'false'}
+                      onClick={() => {
+                        setExpandedProjects((prev) => ({ ...prev, [p.id]: true }))
+                        onSelectProject(p.id)
+                        if (isMobile) onCloseMobile()
+                      }}
+                      className="group flex items-center gap-1.5 px-2 py-1.5 rounded-xl cursor-pointer sidebar-row"
+                      style={{
+                        color: isActiveProj ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setExpandedProjects((prev) => ({ ...prev, [p.id]: !prev[p.id] }))
+                        }}
+                        className="p-0.5 rounded opacity-60 hover:opacity-100 cursor-pointer shrink-0 transition-transform duration-200"
+                        style={{
+                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        }}
+                        title={isExpanded ? '折叠项目对话' : '展开项目对话'}
+                      >
+                        <ChevronRight size={12} />
+                      </button>
+                      <span className="text-[14px] leading-none shrink-0">{p.emoji || '📁'}</span>
+                      <span className="flex-1 truncate text-[13.5px] font-medium">{p.name}</span>
+
+                      <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExpandedProjects((prev) => ({ ...prev, [p.id]: true }))
+                            onNewProjectSession(p.id)
+                            if (isMobile) onCloseMobile()
+                          }}
+                          title="在此项目内新开对话"
+                          className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <Plus size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditProject(p.id)
+                            if (isMobile) onCloseMobile()
+                          }}
+                          title="查看 / 编辑项目记忆"
+                          className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          <BookOpen size={12} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Smooth accordion for project sub-sessions */}
+                    <div className="accordion-grid" data-open={isExpanded ? 'true' : 'false'}>
+                      <div className="accordion-inner">
+                        <div
+                          className="ml-4 pl-2 my-0.5 space-y-0.5"
+                          style={{ borderLeft: '1px solid var(--border-subtle)' }}
+                        >
+                          {projSessions.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onNewProjectSession(p.id)
+                                if (isMobile) onCloseMobile()
+                              }}
+                              className="w-full text-left px-2 py-1.5 rounded-lg text-[11.5px] sidebar-row cursor-pointer"
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              + 开始项目对话
+                            </button>
+                          ) : (
+                            projSessions.map((s) => renderSessionRow(s, isMobile, true))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Standalone chat history grouped by date */}
+        {groupedStandalone.length > 0 && (
+          <div className="space-y-3.5">
+            {groupedStandalone.map((group) => (
               <div key={group.label}>
                 <div
                   className="px-2.5 pb-1 text-[11px] font-medium"
@@ -211,94 +504,7 @@ export function SessionSidebar({
                   {group.label}
                 </div>
                 <div className="space-y-0.5">
-                  {group.items.map((s) => {
-                    const active = activeAppId === 'donut' && s.id === activeSessionId
-                    const isEditing = editingId === s.id
-                    return (
-                      <div
-                        key={s.id}
-                        data-active={active ? 'true' : 'false'}
-                        onClick={() => {
-                          if (!isEditing) {
-                            onSelectSession(s.id)
-                            if (isMobile) onCloseMobile()
-                          }
-                        }}
-                        className="group flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm cursor-pointer sidebar-row"
-                        style={{
-                          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                        }}
-                      >
-                        {isEditing ? (
-                          <div
-                            className="flex-1 flex items-center gap-1 min-w-0"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <input
-                              autoFocus
-                              value={draftTitle}
-                              onChange={(e) => setDraftTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitEdit(s.id)
-                                if (e.key === 'Escape') setEditingId(null)
-                              }}
-                              className="flex-1 min-w-0 px-1.5 py-0.5 text-xs rounded outline-none"
-                              style={{
-                                background: 'var(--bg-surface)',
-                                color: 'var(--text-primary)',
-                                border: '1px solid var(--border-strong)',
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => commitEdit(s.id)}
-                              className="p-1 cursor-pointer"
-                              style={{ color: 'var(--success)' }}
-                            >
-                              <Check size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="p-1 cursor-pointer"
-                              style={{ color: 'var(--text-muted)' }}
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="flex-1 truncate text-[13.5px] leading-snug">
-                              {s.title}
-                            </span>
-                            <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={(e) => startEdit(s, e)}
-                                title="重命名"
-                                className="p-1 rounded hover:opacity-80 cursor-pointer"
-                                style={{ color: 'var(--text-muted)' }}
-                              >
-                                <Pencil size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onDeleteSession(s.id)
-                                }}
-                                title="删除对话"
-                                className="p-1 rounded hover:opacity-80 cursor-pointer"
-                                style={{ color: 'var(--danger)' }}
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })}
+                  {group.items.map((s) => renderSessionRow(s, isMobile, false))}
                 </div>
               </div>
             ))}
@@ -306,7 +512,7 @@ export function SessionSidebar({
         )}
       </div>
 
-      {/* Bottom-left unified Account & Settings Popover (ChatGPT product style) */}
+      {/* Bottom-left unified Account & Settings Popover */}
       <div
         ref={menuWrapRef}
         className="p-2 relative shrink-0"
@@ -314,7 +520,7 @@ export function SessionSidebar({
       >
         {menuOpen && (
           <div
-            className="absolute left-2 right-2 bottom-[calc(100%+6px)] rounded-2xl p-1.5 z-50"
+            className="absolute left-2 right-2 bottom-[calc(100%+6px)] rounded-2xl p-1.5 z-50 animate-pop-up"
             style={{
               background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
@@ -335,7 +541,6 @@ export function SessionSidebar({
               <span>助手人设与定制</span>
             </button>
 
-            {/* Inline theme switcher */}
             <div
               className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-[13px]"
               style={{ color: 'var(--text-primary)' }}
@@ -355,7 +560,7 @@ export function SessionSidebar({
                 <button
                   type="button"
                   onClick={() => onSetTheme('light')}
-                  className="px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                  className="px-2 py-0.5 rounded-md pressable cursor-pointer"
                   style={{
                     background: theme === 'light' ? 'var(--bg-surface)' : 'transparent',
                     color: theme === 'light' ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -367,7 +572,7 @@ export function SessionSidebar({
                 <button
                   type="button"
                   onClick={() => onSetTheme('dark')}
-                  className="px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                  className="px-2 py-0.5 rounded-md pressable cursor-pointer"
                   style={{
                     background: theme === 'dark' ? 'var(--bg-surface)' : 'transparent',
                     color: theme === 'dark' ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -440,17 +645,24 @@ export function SessionSidebar({
 
   return (
     <>
-      {/* Desktop collapsible sidebar */}
-      {desktopOpen && (
-        <div className="hidden lg:block h-full shrink-0">{sidebarBody(false)}</div>
-      )}
+      {/* Smooth animated collapsible desktop sidebar */}
+      <div
+        className="hidden lg:block h-full shrink-0 overflow-hidden panel-slide"
+        style={{
+          width: desktopOpen ? '264px' : '0px',
+          opacity: desktopOpen ? 1 : 0,
+        }}
+        aria-hidden={!desktopOpen}
+      >
+        {sidebarBody(false)}
+      </div>
 
-      {/* Mobile slide-over drawer */}
+      {/* Smooth mobile slide-over drawer */}
       {openMobile && (
         <div className="fixed inset-0 z-40 lg:hidden flex">
-          <div className="relative z-50 h-full">{sidebarBody(true)}</div>
+          <div className="relative z-50 h-full animate-drawer-in">{sidebarBody(true)}</div>
           <div
-            className="flex-1 bg-black/40 backdrop-blur-[1px]"
+            className="flex-1 bg-black/40 backdrop-blur-[1px] animate-backdrop-in"
             onClick={onCloseMobile}
           />
         </div>

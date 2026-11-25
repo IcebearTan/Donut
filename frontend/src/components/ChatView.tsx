@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { StickToBottom } from 'use-stick-to-bottom'
 import {
   ArrowUp,
+  BookOpen,
   ChevronDown,
   ChevronRight,
   Check,
@@ -17,14 +18,23 @@ import {
   Wrench,
   X,
 } from 'lucide-react'
-import { api, type ChatMessage, type ToolCallItem, type UserProfile } from '../api/client'
+import {
+  api,
+  type ChatMessage,
+  type ProjectItem,
+  type ToolCallItem,
+  type UserProfile,
+} from '../api/client'
 
 interface Props {
   user: UserProfile
+  activeProject?: ProjectItem | null
+  isMainSession?: boolean
   messages: ChatMessage[]
   streaming: boolean
   onSend: (text: string, imageIds: string[], imageUrls: string[]) => void
   onStop: () => void
+  onOpenProjectMemory?: (projectId: string) => void
 }
 
 const TIME_GAP_MS = 5 * 60 * 1000 // 5 minutes between messages -> show Dot-style divider
@@ -381,7 +391,16 @@ function UserBubble({ msg, showReceipt }: { msg: ChatMessage; showReceipt: boole
   )
 }
 
-export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
+export function ChatView({
+  user,
+  activeProject,
+  isMainSession,
+  messages,
+  streaming,
+  onSend,
+  onStop,
+  onOpenProjectMemory,
+}: Props) {
   const [input, setInput] = useState('')
   const [pendingImages, setPendingImages] = useState<Array<{ id: string; url: string }>>([])
   const [uploading, setUploading] = useState(false)
@@ -391,17 +410,22 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
 
-  const quickPrompts =
-    user.id === 'her'
+  const quickPrompts = activeProject
+    ? [
+        `回顾一下「${activeProject.name}」目前的背景与进展`,
+        `帮我梳理「${activeProject.name}」接下来最关键的 3 步`,
+        `把今天的想法记进「${activeProject.name}」的项目记忆里`,
+      ]
+    : user.id === 'her'
       ? [
           '帮我制定一份这周的学习与复习计划',
           '我发一张题目或笔记截图，帮我梳理重点',
           '最近有点累，陪我聊两句轻松的',
         ]
       : [
+          '帮我看看我各个项目目前的重点和下一步建议',
           '帮我搜一下我 Notion 里最近更新的页面',
-          '帮我梳理今天最重要的 3 件待办',
-          '用一句话总结我这周的安排建议',
+          '梳理今天最重要的 3 件待办',
         ]
 
   // Auto-grow textarea height smoothly
@@ -477,7 +501,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
       {messages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 pb-8 text-center">
+        <div className="flex-1 flex flex-col items-center justify-center px-4 pb-8 text-center animate-msg-in">
           <div
             className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-4"
             style={{
@@ -485,21 +509,41 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
               border: '1px solid var(--border-subtle)',
             }}
           >
-            {assistantEmoji}
+            {activeProject ? activeProject.emoji || '📁' : assistantEmoji}
           </div>
           <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
-            你好，{user.display_name}
+            {activeProject ? activeProject.name : `你好，${user.display_name}`}
           </h2>
           <p className="text-sm mt-1.5 max-w-md" style={{ color: 'var(--text-muted)' }}>
-            我是你的专属陪伴助手 {assistantName}。随时聊想法、管日程，或直接发截图给我看。
+            {activeProject
+              ? activeProject.summary ||
+                `已自动挂载「${activeProject.name}」的规范与历史记忆，直接接着往下推进吧。`
+              : isMainSession
+                ? `我是 ${assistantName}。在主对话里随口聊什么都可以，需要时我会自动穿梭翻阅你的项目记忆。`
+                : `我是你的专属陪伴助手 ${assistantName}。随时聊想法、管日程，或直接发截图给我看。`}
           </p>
+          {activeProject && onOpenProjectMemory && (
+            <button
+              type="button"
+              onClick={() => onOpenProjectMemory(activeProject.id)}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium sidebar-row pressable cursor-pointer"
+              style={{
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <BookOpen size={12} />
+              <span>查看 / 编辑项目记忆</span>
+            </button>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-7 w-full max-w-2xl">
             {quickPrompts.map((p) => (
               <button
                 key={p}
                 type="button"
                 onClick={() => onSend(p, [], [])}
-                className="text-left p-3.5 rounded-2xl text-xs sm:text-sm leading-snug transition-colors cursor-pointer"
+                className="text-left p-3.5 rounded-2xl text-xs sm:text-sm leading-snug sidebar-row pressable cursor-pointer"
                 style={{
                   background: 'var(--bg-surface)',
                   border: '1px solid var(--border-subtle)',
@@ -526,7 +570,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
                 !isSameDay(new Date(m.created_at), new Date(prev.created_at))
 
               return (
-                <div key={m.id} className="space-y-4">
+                <div key={m.id} className="space-y-4 animate-msg-in">
                   {showTimeDivider && (
                     <div className="flex items-center justify-center py-1 select-none">
                       <span
@@ -604,7 +648,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
               disabled={uploading || streaming || pendingImages.length >= 4}
               onClick={() => fileRef.current?.click()}
               title="上传图片（支持 Ctrl+V 直接粘贴截图）"
-              className="p-2 rounded-xl transition-colors disabled:opacity-40 cursor-pointer shrink-0"
+              className="p-2 rounded-xl sidebar-row pressable disabled:opacity-40 cursor-pointer shrink-0"
               style={{ color: 'var(--text-secondary)' }}
             >
               {uploading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
@@ -617,7 +661,11 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder={`给 ${assistantName} 发消息…（Shift+Enter 换行，支持粘贴截图）`}
+              placeholder={
+                activeProject
+                  ? `在「${activeProject.name}」中给 ${assistantName} 发消息…`
+                  : `给 ${assistantName} 发消息…（Shift+Enter 换行，支持粘贴截图）`
+              }
               className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-44"
               style={{ color: 'var(--text-primary)' }}
             />
@@ -627,7 +675,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
                 type="button"
                 onClick={onStop}
                 title="停止生成"
-                className="p-2 rounded-xl shrink-0 cursor-pointer"
+                className="p-2 rounded-xl shrink-0 pressable cursor-pointer"
                 style={{
                   background: 'var(--accent)',
                   color: 'var(--accent-contrast)',
@@ -641,7 +689,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
                 disabled={!input.trim() && pendingImages.length === 0}
                 onClick={submit}
                 title="发送"
-                className="p-2 rounded-xl shrink-0 transition-opacity disabled:opacity-30 cursor-pointer"
+                className="p-2 rounded-xl shrink-0 pressable disabled:opacity-30 cursor-pointer"
                 style={{
                   background: 'var(--accent)',
                   color: 'var(--accent-contrast)',

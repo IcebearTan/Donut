@@ -49,8 +49,18 @@ def _load_openclaw_meta() -> tuple[str, bool, bool]:
             has_notion = True
 
         plugins = data.get("plugins", {}).get("entries", {})
-        if isinstance(plugins, dict) and "active-memory" in plugins:
-            has_memory = bool(plugins["active-memory"].get("enabled", True))
+        if isinstance(plugins, dict):
+            has_active = (
+                bool(plugins["active-memory"].get("enabled", True))
+                if "active-memory" in plugins
+                else True
+            )
+            has_wiki = (
+                bool(plugins["memory-wiki"].get("enabled", False))
+                if "memory-wiki" in plugins
+                else False
+            )
+            has_memory = has_active or has_wiki
     except Exception:
         pass
     return model_label, has_notion, has_memory
@@ -171,7 +181,7 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
             """
             SELECT id, title, updated_at
             FROM chat_sessions
-            WHERE user_id = ? AND title != '新对话'
+            WHERE user_id = ? AND title != '新对话' AND is_main = 0
             ORDER BY updated_at DESC
             LIMIT 4
             """,
@@ -190,9 +200,33 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    # Check if user's own SOUL.md was updated
+        proj_rows = conn.execute(
+            """
+            SELECT id, slug, name, emoji, summary, updated_at
+            FROM projects
+            WHERE user_id = ?
+            ORDER BY updated_at DESC
+            LIMIT 8
+            """,
+            (uid,),
+        ).fetchall()
+        projects_summary = [dict(r) for r in proj_rows]
+
+    # Check project MEMORY.md mtimes for recent project updates
     try:
         ws = get_agent_workspace(uid)
+        for p in projects_summary[:5]:
+            mem_file = ws / "projects" / p["slug"] / "MEMORY.md"
+            if mem_file.exists():
+                mtime_ms = int(mem_file.stat().st_mtime * 1000)
+                activities.append(
+                    {
+                        "id": f"proj-mem-{p['id']}-{mtime_ms}",
+                        "kind": "project",
+                        "text": f"更新了「{p['name']}」项目记忆",
+                        "at": mtime_ms,
+                    }
+                )
         soul_file = ws / "SOUL.md"
         if soul_file.exists():
             mtime_ms = int(soul_file.stat().st_mtime * 1000)
@@ -217,7 +251,7 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
     if has_notion and uid == "bear":
         connections.append({"id": "notion", "label": "Notion 已连接", "online": gateway_online})
     if has_memory:
-        connections.append({"id": "memory", "label": "长期记忆就绪", "online": gateway_online})
+        connections.append({"id": "memory", "label": "长期记忆 · Wiki", "online": gateway_online})
 
     return {
         "gateway_online": gateway_online,
@@ -227,6 +261,7 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
             "today_turns": today_turns,
             "total_sessions": total_sessions,
             "last_active_at": last_active_at,
+            "projects_count": len(projects_summary),
         },
         "activities": activities,
     }

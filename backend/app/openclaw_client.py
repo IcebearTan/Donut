@@ -103,6 +103,7 @@ async def stream_openclaw_response(
     session_id: str,
     text: str,
     image_paths: list[Path],
+    instructions: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """
     Streams normalized events from OpenClaw Gateway's POST /v1/responses:
@@ -129,11 +130,13 @@ async def stream_openclaw_response(
         "x-openclaw-agent-id": agent_id,
         "x-openclaw-session-key": session_key,
     }
-    payload = {
+    payload: dict[str, Any] = {
         "model": f"openclaw:{agent_id}",
         "input": build_input_payload(text, image_paths),
         "stream": True,
     }
+    if instructions and instructions.strip():
+        payload["instructions"] = instructions.strip()
 
     splitter = _InlineThinkSplitter()
     timeout = httpx.Timeout(connect=15.0, read=180.0, write=30.0, pool=15.0)
@@ -263,3 +266,52 @@ async def stream_openclaw_response(
         }
     except Exception as exc:
         yield {"type": "error", "message": f"流式连接中断: {exc}"}
+
+
+async def run_openclaw_once(
+    *,
+    user_id: str,
+    session_key_suffix: str,
+    prompt: str,
+    instructions: str | None = None,
+) -> str:
+    """Run a single non-streaming turn against the user's isolated OpenClaw agent."""
+    agent_id = USER_AGENT_MAP.get(user_id)
+    if not agent_id:
+        raise RuntimeError(f"No OpenClaw agent mapped for user '{user_id}'")
+    token = load_openclaw_token()
+    if not token:
+        raise RuntimeError("OpenClaw Gateway token not configured")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+        "x-openclaw-agent-id": agent_id,
+        "x-openclaw-session-key": f"agent:{agent_id}:{session_key_suffix}",
+    }
+    payload: dict[str, Any] = {
+        "model": f"openclaw:{agent_id}",
+        "input": prompt,
+        "stream": False,
+    }
+    if instructions and instructions.strip():
+        payload["instructions"] = instructions.strip()
+
+    timeout = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            f"{OPENCLAW_GATEWAY_URL}/v1/responses",
+            headers=headers,
+            json=payload,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"OpenClaw HTTP {resp.status_code}: {resp.text[:240]}")
+        data = resp.json()
+
+    chunks: list[str] = []
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") in ("output_text", "text") and part.get("text"):
+                    chunks.append(str(part["text"]))
+    return "".join(chunks).strip()

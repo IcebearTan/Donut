@@ -35,8 +35,17 @@ from .config import (
     get_registered_apps,
 )
 from .db import db_session, init_db, now_ms
-from .openclaw_client import stream_openclaw_response
+from .openclaw_client import run_openclaw_once, stream_openclaw_response
 from .persona import PERSONA_PRESETS, read_persona_files, write_persona_files
+from .projects import (
+    append_project_memory,
+    archive_project_dir,
+    build_turn_instructions,
+    ensure_project_files,
+    make_safe_slug,
+    read_project_files,
+    rebuild_projects_index,
+)
 from .status import get_companion_status
 
 
@@ -236,12 +245,252 @@ def launch_app(app_id: str, user: dict = Depends(get_current_user)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Isolated Projects & Markdown Memory Brain (Strictly scoped to current user!)
+# ---------------------------------------------------------------------------
+
+
+class CreateProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    emoji: str = Field(default="📁", min_length=1, max_length=8)
+    summary: str = Field(default="", max_length=160)
+    brief_md: Optional[str] = Field(default=None, max_length=12000)
+
+
+class UpdateProjectRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    emoji: Optional[str] = Field(default=None, min_length=1, max_length=8)
+    summary: Optional[str] = Field(default=None, max_length=160)
+    brief_md: Optional[str] = Field(default=None, max_length=12000)
+    memory_md: Optional[str] = Field(default=None, max_length=24000)
+
+
+class DistillProjectRequest(BaseModel):
+    session_id: str
+
+
+def _require_owned_project(conn: Any, project_id: str, user_id: str) -> dict:
+    row = conn.execute(
+        "SELECT * FROM projects WHERE id = ? AND user_id = ?",
+        (project_id, user_id),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+    return dict(row)
+
+
+def _list_user_projects_raw(conn: Any, user_id: str) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT p.id, p.slug, p.name, p.emoji, p.summary, p.created_at, p.updated_at,
+               (SELECT COUNT(*) FROM chat_sessions s WHERE s.project_id = p.id) AS session_count
+        FROM projects p
+        WHERE p.user_id = ?
+        ORDER BY p.updated_at DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/portal-api/projects")
+def list_projects(user: dict = Depends(get_current_user)) -> dict:
+    with db_session() as conn:
+        items = _list_user_projects_raw(conn, user["id"])
+    return {"projects": items}
+
+
+@app.post("/portal-api/projects")
+def create_project(
+    body: CreateProjectRequest, user: dict = Depends(get_current_user)
+) -> dict:
+    name = body.name.strip()
+    emoji = body.emoji.strip() or "📁"
+    summary = body.summary.strip()
+    pid = uuid.uuid4().hex[:12]
+    ts = now_ms()
+
+    with db_session() as conn:
+        existing_slugs = {
+            r["slug"]
+            for r in conn.execute(
+                "SELECT slug FROM projects WHERE user_id = ?", (user["id"],)
+            ).fetchall()
+        }
+        slug = make_safe_slug(name, existing_slugs)
+        conn.execute(
+            """
+            INSERT INTO projects (id, user_id, slug, name, emoji, summary, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (pid, user["id"], slug, name, emoji, summary, ts, ts),
+        )
+        all_projects = _list_user_projects_raw(conn, user["id"])
+
+    files = ensure_project_files(
+        user["id"], slug, name, summary=summary, brief_md=body.brief_md
+    )
+    rebuild_projects_index(user["id"], all_projects)
+    return {
+        "project": {
+            "id": pid,
+            "slug": slug,
+            "name": name,
+            "emoji": emoji,
+            "summary": summary,
+            "session_count": 0,
+            "created_at": ts,
+            "updated_at": ts,
+            **files,
+        }
+    }
+
+
+@app.get("/portal-api/projects/{project_id}")
+def get_project_detail(
+    project_id: str, user: dict = Depends(get_current_user)
+) -> dict:
+    with db_session() as conn:
+        proj = _require_owned_project(conn, project_id, user["id"])
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS c FROM chat_sessions WHERE project_id = ?", (project_id,)
+        ).fetchone()["c"]
+    files = ensure_project_files(user["id"], proj["slug"], proj["name"], proj["summary"])
+    return {"project": {**proj, "session_count": cnt, **files}}
+
+
+@app.put("/portal-api/projects/{project_id}")
+def update_project(
+    project_id: str,
+    body: UpdateProjectRequest,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    ts = now_ms()
+    with db_session() as conn:
+        proj = _require_owned_project(conn, project_id, user["id"])
+        new_name = body.name.strip() if body.name is not None else proj["name"]
+        new_emoji = body.emoji.strip() if body.emoji is not None else proj["emoji"]
+        new_summary = body.summary.strip() if body.summary is not None else proj["summary"]
+        conn.execute(
+            """
+            UPDATE projects
+            SET name = ?, emoji = ?, summary = ?, updated_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (new_name, new_emoji or "📁", new_summary, ts, project_id, user["id"]),
+        )
+        all_projects = _list_user_projects_raw(conn, user["id"])
+        cnt = conn.execute(
+            "SELECT COUNT(*) AS c FROM chat_sessions WHERE project_id = ?", (project_id,)
+        ).fetchone()["c"]
+
+    files = ensure_project_files(
+        user["id"],
+        proj["slug"],
+        new_name,
+        summary=new_summary,
+        brief_md=body.brief_md,
+        memory_md=body.memory_md,
+    )
+    rebuild_projects_index(user["id"], all_projects)
+    return {
+        "project": {
+            **proj,
+            "name": new_name,
+            "emoji": new_emoji or "📁",
+            "summary": new_summary,
+            "updated_at": ts,
+            "session_count": cnt,
+            **files,
+        }
+    }
+
+
+@app.delete("/portal-api/projects/{project_id}")
+def delete_project(project_id: str, user: dict = Depends(get_current_user)) -> dict:
+    with db_session() as conn:
+        proj = _require_owned_project(conn, project_id, user["id"])
+        conn.execute(
+            "DELETE FROM projects WHERE id = ? AND user_id = ?",
+            (project_id, user["id"]),
+        )
+        all_projects = _list_user_projects_raw(conn, user["id"])
+    archive_project_dir(user["id"], proj["slug"])
+    rebuild_projects_index(user["id"], all_projects)
+    return {"ok": True}
+
+
+@app.post("/portal-api/projects/{project_id}/distill")
+async def distill_session_to_project(
+    project_id: str,
+    body: DistillProjectRequest,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Ask the user's isolated Donut agent to distill key conclusions from a chat into MEMORY.md."""
+    with db_session() as conn:
+        proj = _require_owned_project(conn, project_id, user["id"])
+        _require_owned_session(conn, body.session_id, user["id"])
+        rows = conn.execute(
+            """
+            SELECT role, content
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (body.session_id,),
+        ).fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="当前对话还没有可沉淀的内容")
+
+    transcript_lines = []
+    for r in reversed(rows):
+        role_label = "用户" if r["role"] == "user" else "助手"
+        text = str(r["content"] or "").strip()
+        if text:
+            transcript_lines.append(f"{role_label}：{text[:800]}")
+    transcript = "\n\n".join(transcript_lines)
+
+    distill_prompt = (
+        f"请把下面这段围绕项目「{proj['name']}」的对话提炼成精炼的 Markdown 项目记忆笔记（不要客套，不要重复标题）：\n"
+        "- 用 3~6 条清晰要点总结：已敲定的决策、关键进展、新发现的信息、以及明确的下一步待办。\n"
+        "- 每条简洁克制，方便未来新对话快速继承上下文。\n\n"
+        f"--- 对话记录 ---\n{transcript}"
+    )
+
+    try:
+        summary_md = await run_openclaw_once(
+            user_id=user["id"],
+            session_key_suffix=f"distill-{project_id}-{uuid.uuid4().hex[:6]}",
+            prompt=distill_prompt,
+            instructions="你是严谨的项目记忆整理助手，只输出精炼的中文 Markdown 要点列表，不要输出开场白或结尾寒暄。",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"沉淀提炼失败: {exc}")
+
+    if not summary_md:
+        raise HTTPException(status_code=502, detail="未生成有效沉淀内容")
+
+    updated_memory = append_project_memory(user["id"], proj["slug"], summary_md)
+    ts = now_ms()
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ? AND user_id = ?",
+            (ts, project_id, user["id"]),
+        )
+        all_projects = _list_user_projects_raw(conn, user["id"])
+    rebuild_projects_index(user["id"], all_projects)
+    return {"ok": True, "appended": summary_md, "memory_md": updated_memory}
+
+
+# ---------------------------------------------------------------------------
 # Isolated Chat Sessions (Strictly scoped to current user!)
 # ---------------------------------------------------------------------------
 
 
 class CreateSessionRequest(BaseModel):
     title: str = Field(default="新对话", max_length=80)
+    project_id: Optional[str] = Field(default=None, max_length=32)
 
 
 class RenameSessionRequest(BaseModel):
@@ -258,15 +507,49 @@ def _require_owned_session(conn: Any, session_id: str, user_id: str) -> dict:
     return dict(row)
 
 
+def _ensure_main_session(conn: Any, user_id: str) -> dict:
+    row = conn.execute(
+        """
+        SELECT id, title, space_type, project_id, is_main, created_at, updated_at
+        FROM chat_sessions
+        WHERE user_id = ? AND is_main = 1
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        (user_id,),
+    ).fetchone()
+    if row:
+        return dict(row)
+    sid = f"main-{user_id}"
+    ts = now_ms()
+    conn.execute(
+        """
+        INSERT INTO chat_sessions (id, user_id, space_type, title, project_id, is_main, created_at, updated_at)
+        VALUES (?, ?, 'personal', '主对话', NULL, 1, ?, ?)
+        """,
+        (sid, user_id, ts, ts),
+    )
+    return {
+        "id": sid,
+        "title": "主对话",
+        "space_type": "personal",
+        "project_id": None,
+        "is_main": 1,
+        "created_at": ts,
+        "updated_at": ts,
+    }
+
+
 @app.get("/portal-api/sessions")
 def list_sessions(user: dict = Depends(get_current_user)) -> dict:
     with db_session() as conn:
+        _ensure_main_session(conn, user["id"])
         rows = conn.execute(
             """
-            SELECT id, title, space_type, created_at, updated_at
+            SELECT id, title, space_type, project_id, is_main, created_at, updated_at
             FROM chat_sessions
             WHERE user_id = ?
-            ORDER BY updated_at DESC
+            ORDER BY is_main DESC, updated_at DESC
             """,
             (user["id"],),
         ).fetchall()
@@ -280,19 +563,24 @@ def create_session(
     sid = uuid.uuid4().hex[:12]
     ts = now_ms()
     title = body.title.strip() or "新对话"
+    pid = body.project_id
     with db_session() as conn:
+        if pid:
+            _require_owned_project(conn, pid, user["id"])
         conn.execute(
             """
-            INSERT INTO chat_sessions (id, user_id, space_type, title, created_at, updated_at)
-            VALUES (?, ?, 'personal', ?, ?, ?)
+            INSERT INTO chat_sessions (id, user_id, space_type, title, project_id, is_main, created_at, updated_at)
+            VALUES (?, ?, 'personal', ?, ?, 0, ?, ?)
             """,
-            (sid, user["id"], title, ts, ts),
+            (sid, user["id"], title, pid, ts, ts),
         )
     return {
         "session": {
             "id": sid,
             "title": title,
             "space_type": "personal",
+            "project_id": pid,
+            "is_main": 0,
             "created_at": ts,
             "updated_at": ts,
         }
@@ -307,7 +595,9 @@ def rename_session(
 ) -> dict:
     title = body.title.strip()
     with db_session() as conn:
-        _require_owned_session(conn, session_id, user["id"])
+        sess = _require_owned_session(conn, session_id, user["id"])
+        if sess.get("is_main"):
+            raise HTTPException(status_code=400, detail="主对话名称不可修改")
         conn.execute(
             "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ? AND user_id = ?",
             (title, now_ms(), session_id, user["id"]),
@@ -318,7 +608,9 @@ def rename_session(
 @app.delete("/portal-api/sessions/{session_id}")
 def delete_session(session_id: str, user: dict = Depends(get_current_user)) -> dict:
     with db_session() as conn:
-        _require_owned_session(conn, session_id, user["id"])
+        sess = _require_owned_session(conn, session_id, user["id"])
+        if sess.get("is_main"):
+            raise HTTPException(status_code=400, detail="主对话不可删除")
         conn.execute(
             "DELETE FROM chat_sessions WHERE id = ? AND user_id = ?",
             (session_id, user["id"]),
@@ -439,14 +731,22 @@ async def chat_stream(
             """,
             (user_msg_id, body.session_id, text, json.dumps(image_urls), ts),
         )
-        # Auto-title new session from first user message
+        # Auto-title non-main new sessions from first user message
         new_title = sess["title"]
-        if sess["title"] == "新对话" and text:
+        if not sess.get("is_main") and sess["title"] == "新对话" and text:
             new_title = text.replace("\n", " ")[:24]
         conn.execute(
             "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
             (new_title, ts, body.session_id),
         )
+        all_projects = _list_user_projects_raw(conn, user["id"])
+        active_project = (
+            next((p for p in all_projects if p["id"] == sess.get("project_id")), None)
+            if sess.get("project_id")
+            else None
+        )
+
+    turn_instructions = build_turn_instructions(user["id"], active_project, all_projects)
 
     async def event_generator():
         content_parts: list[str] = []
@@ -467,6 +767,7 @@ async def chat_stream(
                     session_id=body.session_id,
                     text=text or "请帮我看看这张图片",
                     image_paths=image_paths,
+                    instructions=turn_instructions,
                 ):
                     await queue.put(ev)
             finally:

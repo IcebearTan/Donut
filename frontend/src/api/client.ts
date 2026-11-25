@@ -42,8 +42,26 @@ export interface CompanionStatus {
     today_turns: number
     total_sessions: number
     last_active_at: number | null
+    projects_count?: number
   }
   activities: CompanionActivityItem[]
+}
+
+export interface ProjectItem {
+  id: string
+  slug: string
+  name: string
+  emoji: string
+  summary: string
+  session_count: number
+  created_at: number
+  updated_at: number
+}
+
+export interface ProjectDetail extends ProjectItem {
+  brief_md: string
+  memory_md: string
+  memory_updated_at?: number | null
 }
 
 export interface LoginHintUser {
@@ -67,6 +85,8 @@ export interface ChatSession {
   id: string
   title: string
   space_type: string
+  project_id?: string | null
+  is_main?: number
   created_at: number
   updated_at: number
 }
@@ -149,10 +169,10 @@ export const api = {
       body: JSON.stringify({ current_password, new_password }),
     }),
   listSessions: () => request<{ sessions: ChatSession[] }>('/portal-api/sessions'),
-  createSession: (title = '新对话') =>
+  createSession: (title = '新对话', project_id?: string | null) =>
     request<{ session: ChatSession }>('/portal-api/sessions', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, project_id: project_id || null }),
     }),
   renameSession: (id: string, title: string) =>
     request<{ ok: boolean; title: string }>(`/portal-api/sessions/${id}`, {
@@ -185,6 +205,42 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getStatus: () => request<CompanionStatus>('/portal-api/status'),
+  listProjects: () => request<{ projects: ProjectItem[] }>('/portal-api/projects'),
+  createProject: (payload: {
+    name: string
+    emoji: string
+    summary: string
+    brief_md?: string
+  }) =>
+    request<{ project: ProjectDetail }>('/portal-api/projects', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getProject: (id: string) => request<{ project: ProjectDetail }>(`/portal-api/projects/${id}`),
+  updateProject: (
+    id: string,
+    payload: {
+      name?: string
+      emoji?: string
+      summary?: string
+      brief_md?: string
+      memory_md?: string
+    },
+  ) =>
+    request<{ project: ProjectDetail }>(`/portal-api/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteProject: (id: string) =>
+    request<{ ok: boolean }>(`/portal-api/projects/${id}`, { method: 'DELETE' }),
+  distillProject: (id: string, session_id: string) =>
+    request<{ ok: boolean; appended: string; memory_md: string }>(
+      `/portal-api/projects/${id}/distill`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ session_id }),
+      },
+    ),
 }
 
 export async function streamChat(
