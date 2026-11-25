@@ -71,17 +71,30 @@ function formatTimeDivider(ts: number): string {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
 }
 
-function formatToolLabel(name: string): string {
+function formatToolAction(name: string): string {
   const lower = name.toLowerCase()
-  if (lower.includes('notion')) return '正在查询 Notion'
-  if (lower.includes('memory') || lower.includes('wiki')) return '正在翻阅记忆'
+  if (lower.includes('notion')) {
+    if (lower.includes('create') && lower.includes('comment')) return '添加 Notion 评论'
+    if (lower.includes('create')) return '新建 Notion 页面'
+    if (lower.includes('update')) return '更新 Notion 内容'
+    if (lower.includes('fetch') || lower.includes('get')) return '读取 Notion 详情'
+    if (lower.includes('search') || lower.includes('query')) return '检索 Notion'
+    if (lower.includes('move')) return '移动 Notion 页面'
+    return '操作 Notion'
+  }
+  if (lower.includes('memory') || lower.includes('wiki')) return '翻阅长期记忆'
   if (lower.includes('search') || lower.includes('web') || lower.includes('fetch'))
-    return '正在联网检索'
+    return '联网检索'
   if (lower.includes('exec') || lower.includes('bash') || lower.includes('shell'))
-    return '正在整理与生成文件'
-  if (lower.includes('read') || lower.includes('write') || lower.includes('file'))
-    return '正在读写文件'
-  return `正在调用 ${name}`
+    return '运行整理脚本'
+  if (lower.includes('read')) return '读取工作区文件'
+  if (lower.includes('write') || lower.includes('edit')) return '写入与更新笔记/技能'
+  if (lower.includes('file')) return '读写文件'
+  return name
+}
+
+function formatToolLabel(name: string): string {
+  return `正在${formatToolAction(name)}`
 }
 
 function CodeBlock({
@@ -349,6 +362,83 @@ function LiveWaitingBanner({
   )
 }
 
+const ToolStepsSummary = memo(function ToolStepsSummary({
+  tools,
+  streaming,
+}: {
+  tools: ToolCallItem[]
+  streaming?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (tools.length === 0) return null
+
+  const doneCount = tools.filter((t) => t.status !== 'running').length
+  const running = [...tools].reverse().find((t) => t.status === 'running')
+  const latest = running || tools[tools.length - 1]
+
+  return (
+    <div className="mb-2 max-w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs sidebar-row pressable cursor-pointer"
+        style={{
+          background: 'var(--bg-elevated)',
+          color: 'var(--text-secondary)',
+          border: '1px solid var(--border-subtle)',
+        }}
+      >
+        {running || streaming ? (
+          <Loader2 size={12} className="animate-spin shrink-0" style={{ color: '#f59e0b' }} />
+        ) : (
+          <Check size={12} className="shrink-0" style={{ color: 'var(--success)' }} />
+        )}
+        <span className="truncate max-w-[260px] sm:max-w-[360px]">
+          {running
+            ? `第 ${tools.length} 步 · ${formatToolLabel(running.name)}`
+            : tools.length === 1
+              ? `已${formatToolAction(latest.name)}`
+              : `已完成 ${doneCount} 步操作`}
+        </span>
+        {open ? (
+          <ChevronDown size={12} className="shrink-0 opacity-70" />
+        ) : (
+          <ChevronRight size={12} className="shrink-0 opacity-70" />
+        )}
+      </button>
+
+      {open && (
+        <div
+          className="mt-1.5 p-2.5 rounded-2xl space-y-1.5 text-xs max-w-md animate-msg-in"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          {tools.map((t, idx) => (
+            <div
+              key={t.id}
+              className="flex items-center gap-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {t.status === 'running' ? (
+                <Loader2 size={11} className="animate-spin shrink-0" style={{ color: '#f59e0b' }} />
+              ) : (
+                <Check size={11} className="shrink-0" style={{ color: 'var(--success)' }} />
+              )}
+              <Wrench size={11} className="opacity-60 shrink-0" />
+              <span className="truncate">
+                {idx + 1}. {t.status === 'running' ? formatToolLabel(t.name) : formatToolAction(t.name)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+})
+
 const AssistantBubble = memo(function AssistantBubble({
   msg,
   assistantEmoji,
@@ -431,29 +521,7 @@ const AssistantBubble = memo(function AssistantBubble({
           />
         )}
 
-        {tools.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {tools.map((t) => (
-              <span
-                key={t.id}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs"
-                style={{
-                  background: 'var(--bg-elevated)',
-                  color: 'var(--text-secondary)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                {t.status === 'running' ? (
-                  <Loader2 size={11} className="animate-spin" />
-                ) : (
-                  <Check size={11} style={{ color: 'var(--success)' }} />
-                )}
-                <Wrench size={11} className="opacity-70" />
-                <span>{t.status === 'running' ? formatToolLabel(t.name) : t.name}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        {tools.length > 0 && <ToolStepsSummary tools={tools} streaming={msg.streaming} />}
 
         {hasContent ? (
           <>
