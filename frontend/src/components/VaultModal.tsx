@@ -198,7 +198,6 @@ export function VaultModal({ user, initialTab = 'artifacts', onChanged, onClose 
             <input
               ref={uploadInputRef}
               type="file"
-              accept="image/*,.pdf,.xlsx,.xls,.csv,.docx,.doc,.txt,.md,.json,.zip"
               multiple
               className="hidden"
               onChange={(e) => handleUpload(e.target.files)}

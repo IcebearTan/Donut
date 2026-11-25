@@ -30,6 +30,8 @@ from .config import (
     FRONTEND_DIST,
     GENERATED_DIR,
     ILAND_URL,
+    MAX_IMAGE_UPLOAD_MB,
+    MAX_UPLOAD_MB,
     SSO_SECRET,
     UPLOAD_DIR,
     USER_AGENT_MAP,
@@ -50,8 +52,8 @@ from .projects import (
 from .status import get_companion_status
 from .titler import generate_smart_title
 from .vault import (
-    ALLOWED_DOC_EXTS,
     ensure_user_vault,
+    is_allowed_upload_ext,
     list_user_skills,
     list_user_vault_files,
     resolve_attachment_path,
@@ -728,13 +730,41 @@ def get_messages(session_id: str, user: dict = Depends(get_current_user)) -> dic
 # ---------------------------------------------------------------------------
 
 
+CHUNK_SIZE = 1024 * 1024  # 1MB chunked streaming to disk (zero RAM spike for large files)
+
+
+async def _stream_upload_to_path(file: UploadFile, dest: Path, max_bytes: int) -> int:
+    total = 0
+    try:
+        with dest.open("wb") as f:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"单个文件不能超过 {max_bytes // (1024 * 1024)}MB",
+                    )
+                f.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        raise
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    return total
+
+
 @app.post("/portal-api/uploads")
 async def upload_image(
     file: UploadFile = File(...), user: dict = Depends(get_current_user)
 ) -> dict:
-    raw = await file.read()
-    if len(raw) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="图片不能超过 15MB")
+    max_img_bytes = MAX_IMAGE_UPLOAD_MB * 1024 * 1024
+    raw = await file.read(max_img_bytes + 1)
+    if len(raw) > max_img_bytes:
+        raise HTTPException(status_code=413, detail=f"图片不能超过 {MAX_IMAGE_UPLOAD_MB}MB")
     try:
         img = Image.open(BytesIO(raw))
         img = ImageOps.exif_transpose(img)
@@ -762,19 +792,27 @@ async def upload_image(
 async def upload_vault_file(
     file: UploadFile = File(...), user: dict = Depends(get_current_user)
 ) -> dict:
-    """Universal per-user file upload (images, PDF, Excel, Word, CSV, TXT, MD, ZIP)."""
-    raw = await file.read()
-    if len(raw) > 25 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="单个文件不能超过 25MB")
-
+    """Universal per-user file upload (chunked streaming to disk, up to MAX_UPLOAD_MB)."""
     orig_name = file.filename or "file"
     ext = Path(orig_name).suffix.lower()
     ctype = (file.content_type or "").lower()
-    is_image = ctype.startswith("image/") or ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    is_raster_image = ctype.startswith("image/") and ext in {".png", ".jpg", ".jpeg", ".webp", ".gif", ""}
+    if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        is_raster_image = True
+
+    if not is_raster_image and not is_allowed_upload_ext(ext):
+        raise HTTPException(
+            status_code=400,
+            detail=f"出于安全考虑暂不支持 {ext} 可执行文件，建议压缩为 ZIP 后上传",
+        )
 
     dirs = ensure_user_vault(user["id"])
 
-    if is_image:
+    if is_raster_image:
+        max_img_bytes = MAX_IMAGE_UPLOAD_MB * 1024 * 1024
+        raw = await file.read(max_img_bytes + 1)
+        if len(raw) > max_img_bytes:
+            raise HTTPException(status_code=413, detail=f"单张图片不能超过 {MAX_IMAGE_UPLOAD_MB}MB")
         try:
             img = Image.open(BytesIO(raw))
             img = ImageOps.exif_transpose(img)
@@ -795,25 +833,20 @@ async def upload_vault_file(
             "ext": ".webp",
         }
 
-    if ext not in ALLOWED_DOC_EXTS:
-        raise HTTPException(
-            status_code=400,
-            detail="暂支持图片、PDF、Excel、Word、CSV、TXT、Markdown、JSON 与 ZIP 文件",
-        )
-
     safe_base = sanitize_filename(orig_name, fallback_ext=ext)
     dest = dirs["inbox"] / safe_base
     if dest.exists():
         stem = Path(safe_base).stem
         safe_base = f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
         dest = dirs["inbox"] / safe_base
-    dest.write_bytes(raw)
+
+    written = await _stream_upload_to_path(file, dest, MAX_UPLOAD_MB * 1024 * 1024)
     return {
         "id": safe_base,
         "name": orig_name,
         "url": f"/portal-api/vault/download/inbox/{safe_base}",
         "is_image": False,
-        "size": len(raw),
+        "size": written,
         "ext": ext,
     }
 

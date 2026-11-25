@@ -11,23 +11,22 @@ from .persona import get_agent_workspace
 
 VAULT_SCOPES = ("inbox", "artifacts", "archive")
 
-ALLOWED_DOC_EXTS = {
-    ".pdf",
-    ".xlsx",
-    ".xls",
-    ".csv",
-    ".docx",
-    ".doc",
-    ".txt",
-    ".md",
-    ".json",
-    ".zip",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".webp",
-    ".gif",
+BLOCKED_UPLOAD_EXTS = {
+    ".exe",
+    ".msi",
+    ".dll",
+    ".bat",
+    ".cmd",
+    ".com",
+    ".scr",
+    ".pif",
+    ".vbs",
+    ".ps1",
 }
+
+
+def is_allowed_upload_ext(ext: str) -> bool:
+    return ext.lower() not in BLOCKED_UPLOAD_EXTS
 
 
 def ensure_user_vault(user_id: str) -> dict[str, Path]:

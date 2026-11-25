@@ -21,6 +21,8 @@ VAULT_DIR.mkdir(parents=True, exist_ok=True)
 COOKIE_NAME = "portal_session"
 COOKIE_SECURE = os.environ.get("PORTAL_COOKIE_SECURE", "0") == "1"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
+MAX_UPLOAD_MB = int(os.environ.get("PORTAL_MAX_UPLOAD_MB", "500"))
+MAX_IMAGE_UPLOAD_MB = int(os.environ.get("PORTAL_MAX_IMAGE_MB", "50"))
 
 # Persistent signing secret (auto-generated on first run inside data/.secret)
 _secret_file = DATA_DIR / ".secret"

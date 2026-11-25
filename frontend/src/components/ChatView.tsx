@@ -812,7 +812,6 @@ export function ChatView({
             <input
               ref={fileRef}
               type="file"
-              accept="image/*,.pdf,.xlsx,.xls,.csv,.docx,.doc,.txt,.md,.json,.zip"
               multiple
               className="hidden"
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
