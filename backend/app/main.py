@@ -37,6 +37,7 @@ from .config import (
 from .db import db_session, init_db, now_ms
 from .openclaw_client import stream_openclaw_response
 from .persona import PERSONA_PRESETS, read_persona_files, write_persona_files
+from .status import get_companion_status
 
 
 @asynccontextmanager
@@ -539,6 +540,11 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/portal-api/status")
+async def companion_status(user: dict = Depends(get_current_user)) -> dict:
+    return await get_companion_status(user)
 
 
 @app.get("/portal-api/health")

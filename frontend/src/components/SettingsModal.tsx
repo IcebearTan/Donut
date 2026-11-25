@@ -5,6 +5,7 @@ import { api, type PersonaPreset, type UserProfile } from '../api/client'
 interface Props {
   user: UserProfile
   theme: 'light' | 'dark'
+  initialTab?: 'persona' | 'account'
   onSetTheme: (t: 'light' | 'dark') => void
   onUserUpdated: (user: UserProfile) => void
   onClose: () => void
@@ -15,11 +16,12 @@ const EMOJI_CHOICES = ['🍩', '🐻', '🐱', '🐰', '🦊', '🍓', '🍑', '
 export function SettingsModal({
   user,
   theme,
+  initialTab = 'persona',
   onSetTheme,
   onUserUpdated,
   onClose,
 }: Props) {
-  const [tab, setTab] = useState<'persona' | 'account'>('persona')
+  const [tab, setTab] = useState<'persona' | 'account'>(initialTab)
 
   // Persona state
   const [assistantName, setAssistantName] = useState(user.assistant_name || 'Donut')

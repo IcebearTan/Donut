@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Menu, PanelLeftOpen } from 'lucide-react'
 import {
   api,
   streamChat,
   type ChatMessage,
   type ChatSession,
+  type CompanionStatus,
   type PortalAppItem,
   type UserProfile,
 } from './api/client'
 import { LoginView } from './components/LoginView'
-import { AppHeader } from './components/AppHeader'
 import { SessionSidebar } from './components/SessionSidebar'
 import { ChatView } from './components/ChatView'
+import { CompanionPanel, type LiveStreamState } from './components/CompanionPanel'
 import { SettingsModal } from './components/SettingsModal'
 
 function getInitialTheme(): 'light' | 'dark' {
@@ -35,9 +37,19 @@ export function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streaming, setStreaming] = useState(false)
+  const [liveState, setLiveState] = useState<LiveStreamState>({
+    streaming: false,
+    startedAt: null,
+    activeToolName: null,
+  })
 
+  const [companionStatus, setCompanionStatus] = useState<CompanionStatus | null>(null)
+  const [loadingStatus, setLoadingStatus] = useState(false)
+
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
+  const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'persona' | 'account' | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -48,8 +60,20 @@ export function App() {
       // ignore
     }
     const meta = document.querySelector('meta[name="theme-color"]')
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f1115' : '#ffffff')
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#212121' : '#ffffff')
   }, [theme])
+
+  const refreshStatus = useCallback(async () => {
+    setLoadingStatus(true)
+    try {
+      const st = await api.getStatus()
+      setCompanionStatus(st)
+    } catch {
+      // ignore transient poll failures
+    } finally {
+      setLoadingStatus(false)
+    }
+  }, [])
 
   const loadWorkspace = useCallback(async () => {
     const [meRes, sessRes] = await Promise.all([api.me(), api.listSessions()])
@@ -65,6 +89,7 @@ export function App() {
       setActiveSessionId(null)
       setMessages([])
     }
+    api.getStatus().then(setCompanionStatus).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -75,8 +100,18 @@ export function App() {
       .finally(() => setCheckingAuth(false))
   }, [loadWorkspace])
 
+  // Gentle 60s background refresh of companion connection & recent activities
+  useEffect(() => {
+    if (!user) return
+    const timer = window.setInterval(() => {
+      api.getStatus().then(setCompanionStatus).catch(() => {})
+    }, 60_000)
+    return () => window.clearInterval(timer)
+  }, [user])
+
   async function handleSelectSession(id: string) {
     if (streaming) return
+    setActiveAppId('donut')
     setActiveSessionId(id)
     try {
       const res = await api.getMessages(id)
@@ -88,6 +123,7 @@ export function App() {
 
   function handleNewSession() {
     if (streaming) return
+    setActiveAppId('donut')
     setActiveSessionId(null)
     setMessages([])
   }
@@ -153,6 +189,7 @@ export function App() {
     const controller = new AbortController()
     abortRef.current = controller
     setStreaming(true)
+    setLiveState({ streaming: true, startedAt: now, activeToolName: null })
 
     try {
       await streamChat(
@@ -180,6 +217,10 @@ export function App() {
               ),
             )
           } else if (ev.type === 'tool') {
+            setLiveState((prev) => ({
+              ...prev,
+              activeToolName: ev.status === 'running' ? ev.name : null,
+            }))
             setMessages((prev) =>
               prev.map((m) => {
                 if (m.id !== tempAsstId) return m
@@ -244,7 +285,9 @@ export function App() {
         prev.map((m) => (m.id === tempAsstId ? { ...m, streaming: false } : m)),
       )
       setStreaming(false)
+      setLiveState({ streaming: false, startedAt: null, activeToolName: null })
       abortRef.current = null
+      refreshStatus()
     }
   }
 
@@ -273,6 +316,7 @@ export function App() {
     setSessions([])
     setActiveSessionId(null)
     setMessages([])
+    setCompanionStatus(null)
     setActiveAppId('donut')
     setExternalLaunchUrl(null)
   }
@@ -280,7 +324,7 @@ export function App() {
   if (checkingAuth) {
     return (
       <div className="h-full flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
-        正在进入空间…
+        正在进入…
       </div>
     )
   }
@@ -299,69 +343,122 @@ export function App() {
   }
 
   const activeExternalApp = apps.find((a) => a.id === activeAppId && a.type === 'link')
+  const assistantEmoji = user.assistant_emoji || '🍩'
+  const assistantName = user.assistant_name || 'Donut'
 
   return (
-    <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-page)' }}>
-      <AppHeader
+    <div className="h-full flex overflow-hidden relative" style={{ background: 'var(--bg-page)' }}>
+      {/* Pure left sidebar (collapsible on desktop, drawer on mobile) */}
+      <SessionSidebar
         user={user}
         apps={apps}
         activeAppId={activeAppId}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
         theme={theme}
+        desktopOpen={desktopSidebarOpen}
+        openMobile={mobileSidebarOpen}
+        onToggleDesktop={() => setDesktopSidebarOpen((v) => !v)}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
         onSelectApp={handleSelectApp}
-        onToggleSidebar={() => setMobileSidebarOpen((v) => !v)}
-        onToggleTheme={() => setTheme((t) => (t === 'light' ? 'dark' : 'light'))}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onNewSession={handleNewSession}
+        onSelectSession={handleSelectSession}
+        onRenameSession={handleRenameSession}
+        onDeleteSession={handleDeleteSession}
+        onSetTheme={setTheme}
+        onOpenSettings={(tab) => setSettingsTab(tab)}
         onLogout={handleLogout}
       />
 
-      {activeExternalApp ? (
-        <div className="flex-1 flex flex-col min-h-0 relative">
-          {externalLaunchUrl ? (
-            <iframe
-              key={externalLaunchUrl}
-              src={externalLaunchUrl}
-              title={activeExternalApp.name}
-              className="w-full h-full border-0"
-            />
-          ) : (
-            <div
-              className="flex-1 flex items-center justify-center text-sm"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              正在以 {user.display_name} 身份进入 {activeExternalApp.name}…
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex-1 flex min-h-0 overflow-hidden">
-          <SessionSidebar
-            user={user}
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            openMobile={mobileSidebarOpen}
-            onCloseMobile={() => setMobileSidebarOpen(false)}
-            onNewSession={handleNewSession}
-            onSelectSession={handleSelectSession}
-            onRenameSession={handleRenameSession}
-            onDeleteSession={handleDeleteSession}
-          />
-          <ChatView
-            user={user}
-            messages={messages}
-            streaming={streaming}
-            onSend={handleSend}
-            onStop={handleStop}
-          />
-        </div>
-      )}
+      {/* Main content area — ZERO top bar on desktop! */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+        {/* Whisper-quiet floating sidebar reopen button on desktop when collapsed */}
+        {!desktopSidebarOpen && (
+          <button
+            type="button"
+            onClick={() => setDesktopSidebarOpen(true)}
+            title="展开侧边栏"
+            className="hidden lg:inline-flex items-center justify-center fixed top-3 left-3 z-20 p-2 rounded-xl transition-colors cursor-pointer sidebar-row"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <PanelLeftOpen size={16} />
+          </button>
+        )}
 
-      {settingsOpen && (
+        {/* Ultra-minimal mobile-only drawer trigger */}
+        <div className="lg:hidden flex items-center justify-between px-3 h-11 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            aria-label="打开侧边栏"
+            className="p-2 -ml-1 rounded-xl cursor-pointer"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <Menu size={18} />
+          </button>
+          <span className="text-sm font-medium flex items-center gap-1.5">
+            <span>{activeExternalApp ? activeExternalApp.emoji : assistantEmoji}</span>
+            <span>{activeExternalApp ? activeExternalApp.shortName : assistantName}</span>
+          </span>
+          <div className="w-8" />
+        </div>
+
+        {activeExternalApp ? (
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            {externalLaunchUrl ? (
+              <iframe
+                key={externalLaunchUrl}
+                src={externalLaunchUrl}
+                title={activeExternalApp.name}
+                className="w-full h-full border-0"
+              />
+            ) : (
+              <div
+                className="flex-1 flex items-center justify-center text-sm"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                正在进入 {activeExternalApp.name}…
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 flex min-w-0 min-h-0 relative">
+            <ChatView
+              user={user}
+              messages={messages}
+              streaming={streaming}
+              onSend={handleSend}
+              onStop={handleStop}
+            />
+            <CompanionPanel
+              user={user}
+              status={companionStatus}
+              loading={loadingStatus}
+              open={rightPanelOpen}
+              live={liveState}
+              onToggleOpen={() => setRightPanelOpen((v) => !v)}
+              onRefresh={refreshStatus}
+            />
+          </div>
+        )}
+      </div>
+
+      {settingsTab && (
         <SettingsModal
           user={user}
           theme={theme}
+          initialTab={settingsTab}
           onSetTheme={setTheme}
-          onUserUpdated={setUser}
-          onClose={() => setSettingsOpen(false)}
+          onUserUpdated={(u) => {
+            setUser(u)
+            refreshStatus()
+          }}
+          onClose={() => setSettingsTab(null)}
         />
       )}
     </div>

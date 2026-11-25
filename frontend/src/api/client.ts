@@ -21,6 +21,31 @@ export interface PersonaData {
   presets: PersonaPreset[]
 }
 
+export interface CompanionConnectionItem {
+  id: string
+  label: string
+  online: boolean
+}
+
+export interface CompanionActivityItem {
+  id: string
+  kind: 'tool' | 'chat' | 'persona' | string
+  text: string
+  at: number
+}
+
+export interface CompanionStatus {
+  gateway_online: boolean
+  model_label: string
+  connections: CompanionConnectionItem[]
+  stats: {
+    today_turns: number
+    total_sessions: number
+    last_active_at: number | null
+  }
+  activities: CompanionActivityItem[]
+}
+
 export interface LoginHintUser {
   id: string
   display_name: string
@@ -159,6 +184,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
+  getStatus: () => request<CompanionStatus>('/portal-api/status'),
 }
 
 export async function streamChat(

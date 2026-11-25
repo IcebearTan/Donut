@@ -513,7 +513,7 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
         </div>
       ) : (
         <StickToBottom
-          className="flex-1 overflow-y-auto px-4 py-6"
+          className="flex-1 overflow-y-auto px-4 sm:px-6 pt-8 pb-6"
           resize="smooth"
           initial="instant"
         >
@@ -553,9 +553,9 @@ export function ChatView({ user, messages, streaming, onSend, onStop }: Props) {
       )}
 
       {/* Composer */}
-      <div className="shrink-0 px-3 sm:px-4 pb-4 pt-2">
+      <div className="shrink-0 px-3 sm:px-6 pb-5 pt-2">
         <div
-          className="max-w-3xl mx-auto rounded-2xl p-2.5 transition-colors"
+          className="max-w-3xl mx-auto rounded-[22px] p-2.5 transition-colors"
           style={{
             background: 'var(--bg-surface)',
             border: '1px solid var(--border-strong)',
