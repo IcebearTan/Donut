@@ -170,22 +170,6 @@ def build_turn_instructions(
         ]
         return "\n".join(parts)
 
-    if not all_projects:
-        return ""
-
-    index_path = get_projects_root(user_id) / "_index.md"
-    index_text = (
-        index_path.read_text(encoding="utf-8").strip()
-        if index_path.exists()
-        else rebuild_projects_index(user_id, all_projects).strip()
-    )
-    return "\n".join(
-        [
-            "【跨项目自由穿梭模式（主对话 / 游龙）】",
-            "以下是用户当前的所有项目地图（路径均位于你的 workspace 下）。",
-            "当用户提及某个项目、需要跨多个项目联动对比，或随口交代「帮我记到某项目里」时，请主动按需读取或追加更新对应项目的 `BRIEF.md` / `MEMORY.md`，并在回复里自然说明查阅或更新了哪个项目。",
-            "如果当前只是普通闲聊且未涉及任何项目，则无需强行提起项目。",
-            "",
-            index_text[:3000],
-        ]
-    )
+    # In Main Chat / standalone chat, keep system prompt prefix 100% STATIC for maximum DeepSeek KV-cache hit rate!
+    # Static workspace AGENTS.md instructs Donut to read `projects/_index.md` on demand when the user mentions projects.
+    return ""

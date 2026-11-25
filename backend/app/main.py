@@ -761,27 +761,17 @@ async def chat_stream(
 
     turn_instructions = build_turn_instructions(user["id"], active_project, all_projects)
 
-    # Inject Dot-style conversational pacing + uploaded image local paths + downloadable file output directory
+    # Keep system prompt prefix 100% static so DeepSeek KV-cache hits at 95%+ (50x cheaper!).
+    # Only append per-turn uploaded image paths at the TAIL of the current user message payload (never in instructions).
     user_gen_dir = GENERATED_DIR / user["id"]
     user_gen_dir.mkdir(parents=True, exist_ok=True)
-    extra_rules = [
-        "【Dot 风格分批对话节奏】",
-        "- 日常闲聊或简单问答：直接自然简短回答即可。",
-        "- 当任务需要调用工具（查 Notion、翻阅/写入项目文件、整理发票、生成 PDF/Excel）时：先用一句自然温暖的短句告诉用户你接下来要做什么（例如「好呀，我先去核对一下你的发票记录和截图，马上整理成 PDF 给你～」），再调用工具执行，最后清晰分段汇报结果；不要沉默几十秒才一次性甩出大段文字。",
-        f"- 当你需要生成可供用户下载的文件（如报销 PDF、Excel 汇总表、整理好的文档）时，请把最终文件保存到 `{user_gen_dir}`，并在回复中用 Markdown 链接 `[文件名](/portal-api/files/文件名)` 提供一键下载（文件名请只使用中文、英文、数字、下划线或连字符，不要含空格）。",
-    ]
+    openclaw_text = text or "请帮我看看这张图片"
     if image_paths:
-        paths_list = "\n".join(f"  - {p}" for p in image_paths)
-        extra_rules.append(
-            "【本次用户上传的图片服务器本地路径（可直接传给 PDF/文件整理脚本使用）】\n"
-            + paths_list
+        paths_list = "\n".join(f"- {p}" for p in image_paths)
+        openclaw_text = (
+            f"{openclaw_text}\n\n"
+            f"[附件本地路径（如需用脚本合成为 PDF 可直接传入）：\n{paths_list}]"
         )
-    extra_block = "\n".join(extra_rules)
-    turn_instructions = (
-        f"{turn_instructions}\n\n{extra_block}".strip()
-        if turn_instructions
-        else extra_block
-    )
 
     async def event_generator():
         content_parts: list[str] = []
@@ -800,9 +790,9 @@ async def chat_stream(
                 async for ev in stream_openclaw_response(
                     user_id=user["id"],
                     session_id=body.session_id,
-                    text=text or "请帮我看看这张图片",
+                    text=openclaw_text,
                     image_paths=image_paths,
-                    instructions=turn_instructions,
+                    instructions=turn_instructions or None,
                 ):
                     await queue.put(ev)
             finally:
