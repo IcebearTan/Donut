@@ -211,7 +211,7 @@ const MarkdownBubble = memo(function MarkdownBubble({
   return (
     <div
       data-testid="assistant-bubble"
-      className={`max-w-full sm:max-w-[92%] px-4 sm:px-4.5 py-3 rounded-2xl overflow-x-auto ${
+      className={`max-w-[92%] sm:max-w-[84%] px-4 sm:px-4.5 py-3 rounded-2xl overflow-x-auto ${
         isFirst ? 'rounded-tl-sm' : 'animate-asst-arrive'
       }`}
       style={{
@@ -441,11 +441,9 @@ const ToolStepsSummary = memo(function ToolStepsSummary({
 
 const AssistantBubble = memo(function AssistantBubble({
   msg,
-  assistantEmoji,
   assistantName,
 }: {
   msg: ChatMessage
-  assistantEmoji: string
   assistantName: string
 }) {
   const bubbleSegments = useMemo(() => {
@@ -498,21 +496,8 @@ const AssistantBubble = memo(function AssistantBubble({
     (Boolean(runningTool) || waitingBetweenBatches)
 
   return (
-    <div className="flex items-start gap-3 sm:gap-3.5 max-w-3xl w-full mx-auto animate-asst-arrive">
-      <div
-        data-testid="assistant-avatar"
-        className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full shrink-0 flex items-center justify-center text-lg sm:text-xl mt-0.5 select-none ${
-          msg.streaming ? 'donut-ring-active' : ''
-        }`}
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        {assistantEmoji}
-      </div>
-      <div className="flex-1 min-w-0 flex flex-col items-start">
+    <div className="flex flex-col items-start max-w-3xl w-full mx-auto animate-asst-arrive">
+      <div className="w-full min-w-0 flex flex-col items-start">
         {hasThinking && (
           <ThinkingBlock
             thinking={msg.thinking!}
@@ -591,10 +576,12 @@ const UserBubble = memo(function UserBubble({
         )}
         {msg.content && (
           <div
-            className="px-3.5 sm:px-4 py-2.5 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed whitespace-pre-wrap break-word"
+            data-testid="user-bubble"
+            className="px-4 py-2.5 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed whitespace-pre-wrap break-word"
             style={{
               background: 'var(--bg-user-bubble)',
               color: 'var(--text-user-bubble)',
+              boxShadow: 'var(--shadow-user-bubble)',
             }}
           >
             {msg.content}
@@ -1047,11 +1034,7 @@ export function ChatView({
                   {m.role === 'user' ? (
                     <UserBubble msg={m} showReceipt={idx === lastUserIdx} />
                   ) : (
-                    <AssistantBubble
-                      msg={m}
-                      assistantEmoji={assistantEmoji}
-                      assistantName={assistantName}
-                    />
+                    <AssistantBubble msg={m} assistantName={assistantName} />
                   )}
                 </div>
               )

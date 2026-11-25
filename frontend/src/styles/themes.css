@@ -15,11 +15,12 @@ html[data-theme="light"] {
   --bg-elevated: #f3f3f1;
   --bg-hover: #efefec;
   --bg-active: #eaeae6;
-  --bg-user-bubble: #f0f0ec;
-  --text-user-bubble: #171717;
-  --bg-assistant-bubble: #fbfbfa;
-  --border-assistant-bubble: #eaeae5;
-  --shadow-bubble: 0 1px 3px rgba(0, 0, 0, 0.035);
+  --bg-user-bubble: #202024;
+  --text-user-bubble: #ffffff;
+  --shadow-user-bubble: 0 2px 8px rgba(0, 0, 0, 0.09);
+  --bg-assistant-bubble: #f5f5f2;
+  --border-assistant-bubble: #ebebE5;
+  --shadow-bubble: 0 1px 2px rgba(0, 0, 0, 0.025);
   --header-fade-bg: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.98) 0%,
@@ -63,11 +64,12 @@ html[data-theme="dark"] {
   --bg-elevated: #2f2f2f;
   --bg-hover: #2c2c2c;
   --bg-active: #343434;
-  --bg-user-bubble: #323236;
-  --text-user-bubble: #ececec;
-  --bg-assistant-bubble: #27272a;
+  --bg-user-bubble: #eae8e3;
+  --text-user-bubble: #171717;
+  --shadow-user-bubble: 0 2px 10px rgba(0, 0, 0, 0.28);
+  --bg-assistant-bubble: #28282b;
   --border-assistant-bubble: #35353a;
-  --shadow-bubble: 0 2px 6px rgba(0, 0, 0, 0.22);
+  --shadow-bubble: 0 1px 4px rgba(0, 0, 0, 0.18);
   --header-fade-bg: linear-gradient(
     180deg,
     rgba(33, 33, 33, 0.98) 0%,
