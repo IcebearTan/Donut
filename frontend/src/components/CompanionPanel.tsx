@@ -477,7 +477,9 @@ export function CompanionPanel({
         }`}
         aria-hidden={!mobileOpen}
       >
-        <div className="absolute inset-0 bg-black/40" onClick={onCloseMobile} />
+        {mobileOpen && (
+          <div className="absolute inset-0 bg-black/40 animate-backdrop-in" onClick={onCloseMobile} />
+        )}
         <div
           data-testid="mobile-companion-sheet"
           className="relative z-10 max-h-[82dvh] flex flex-col rounded-t-3xl overflow-hidden safe-pb transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]"

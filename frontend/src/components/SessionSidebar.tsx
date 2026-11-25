@@ -117,7 +117,6 @@ export function SessionSidebar({
   const standaloneSessions = sessions.filter((s) => !s.is_main && !s.project_id)
   const groupedStandalone = groupSessionsByDate(standaloneSessions)
 
-  // Auto-expand active project in sidebar
   useEffect(() => {
     if (activeProjectId) {
       setExpandedProjects((prev) =>
@@ -162,8 +161,8 @@ export function SessionSidebar({
             if (isMobile) onCloseMobile()
           }
         }}
-        className={`group flex items-center gap-2 rounded-xl text-sm cursor-pointer sidebar-row ${
-          nested ? 'px-2.5 py-1.5' : 'px-2.5 py-2'
+        className={`group flex items-center gap-2 rounded-xl cursor-pointer sidebar-row ${
+          nested ? 'px-2.5 py-2' : 'px-3 py-2.5'
         }`}
         style={{
           color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -182,7 +181,7 @@ export function SessionSidebar({
                 if (e.key === 'Enter') commitEdit(s.id)
                 if (e.key === 'Escape') setEditingId(null)
               }}
-              className="flex-1 min-w-0 px-1.5 py-0.5 text-xs rounded outline-none"
+              className="flex-1 min-w-0 px-2 py-1 text-sm rounded outline-none"
               style={{
                 background: 'var(--bg-surface)',
                 color: 'var(--text-primary)',
@@ -195,7 +194,7 @@ export function SessionSidebar({
               className="p-1 pressable cursor-pointer"
               style={{ color: 'var(--success)' }}
             >
-              <Check size={13} />
+              <Check size={14} />
             </button>
             <button
               type="button"
@@ -203,12 +202,16 @@ export function SessionSidebar({
               className="p-1 pressable cursor-pointer"
               style={{ color: 'var(--text-muted)' }}
             >
-              <X size={13} />
+              <X size={14} />
             </button>
           </div>
         ) : (
           <>
-            <span className={`flex-1 truncate leading-snug ${nested ? 'text-[12.5px]' : 'text-[13.5px]'}`}>
+            <span
+              className={`flex-1 truncate leading-snug ${
+                nested ? 'text-[13.5px]' : 'text-[14.5px]'
+              }`}
+            >
               {s.title}
             </span>
             <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
@@ -219,7 +222,7 @@ export function SessionSidebar({
                 className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
                 style={{ color: 'var(--text-muted)' }}
               >
-                <Pencil size={12} />
+                <Pencil size={13} />
               </button>
               <button
                 type="button"
@@ -231,7 +234,7 @@ export function SessionSidebar({
                 className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
                 style={{ color: 'var(--danger)' }}
               >
-                <Trash2 size={12} />
+                <Trash2 size={13} />
               </button>
             </div>
           </>
@@ -242,26 +245,28 @@ export function SessionSidebar({
 
   const sidebarBody = (isMobile: boolean) => (
     <aside
-      className="h-full w-[264px] flex flex-col select-none shrink-0"
+      className={`h-full flex flex-col select-none shrink-0 ${
+        isMobile ? 'w-[288px] max-w-[84vw]' : 'w-[276px]'
+      }`}
       style={{
         background: 'var(--bg-sidebar)',
         borderRight: '1px solid var(--border-subtle)',
       }}
     >
       {/* Top brand + collapse */}
-      <div className="h-12 px-3 flex items-center justify-between shrink-0">
+      <div className="h-14 px-3.5 flex items-center justify-between shrink-0">
         <button
           type="button"
           onClick={() => {
             onSelectMainSession()
             if (isMobile) onCloseMobile()
           }}
-          className="flex items-center gap-2 px-1.5 py-1 rounded-lg text-sm font-semibold tracking-tight sidebar-row cursor-pointer"
+          className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl text-[15.5px] font-semibold tracking-tight sidebar-row cursor-pointer"
           style={{ color: 'var(--text-primary)' }}
           title="回到主对话"
         >
-          <span className="text-base leading-none">{assistantEmoji}</span>
-          <span className="truncate max-w-[155px]">{assistantName}</span>
+          <span className="text-lg leading-none">{assistantEmoji}</span>
+          <span className="truncate max-w-[165px]">{assistantName}</span>
         </button>
 
         <button
@@ -269,15 +274,15 @@ export function SessionSidebar({
           onClick={isMobile ? onCloseMobile : onToggleDesktop}
           title="收起侧边栏"
           data-testid="sidebar-collapse-btn"
-          className="p-1.5 rounded-lg sidebar-row pressable cursor-pointer"
+          className="p-2 rounded-xl sidebar-row pressable cursor-pointer"
           style={{ color: 'var(--text-muted)' }}
         >
-          {isMobile ? <X size={16} /> : <PanelLeftClose size={16} />}
+          {isMobile ? <X size={18} /> : <PanelLeftClose size={17} />}
         </button>
       </div>
 
       {/* Primary nav: Main Stream (游龙) + New Chat + I-land */}
-      <div className="px-2 pb-2 space-y-0.5 shrink-0">
+      <div className="px-2.5 pb-2.5 space-y-1 shrink-0">
         <button
           type="button"
           data-testid="main-chat-nav"
@@ -290,16 +295,16 @@ export function SessionSidebar({
             onSelectMainSession()
             if (isMobile) onCloseMobile()
           }}
-          className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
+          className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
           style={{ color: 'var(--text-primary)' }}
         >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <Compass size={15} className="shrink-0 opacity-80" />
+          <span className="flex items-center gap-3 min-w-0">
+            <Compass size={17} className="shrink-0 opacity-80" />
             <span className="truncate">主对话</span>
           </span>
           {projects.length > 0 && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+              className="text-[11px] px-2 py-0.5 rounded-full shrink-0"
               style={{
                 background: 'var(--bg-elevated)',
                 color: 'var(--text-muted)',
@@ -322,10 +327,10 @@ export function SessionSidebar({
             onNewStandaloneSession()
             if (isMobile) onCloseMobile()
           }}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
           style={{ color: 'var(--text-secondary)' }}
         >
-          <SquarePen size={15} className="shrink-0 opacity-80" />
+          <SquarePen size={17} className="shrink-0 opacity-80" />
           <span>新对话</span>
         </button>
 
@@ -340,18 +345,18 @@ export function SessionSidebar({
                 if (isMobile) onCloseMobile()
               }}
               data-active={isActive ? 'true' : 'false'}
-              className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-[13.5px] font-medium sidebar-row cursor-pointer text-left"
+              className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
               style={{
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
               }}
             >
-              <span className="flex items-center gap-2.5 min-w-0">
-                <span className="text-[15px] leading-none shrink-0">{app.emoji}</span>
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="text-[17px] leading-none shrink-0">{app.emoji}</span>
                 <span className="truncate">{app.shortName}</span>
               </span>
               {isActive && (
                 <span
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  className="w-2 h-2 rounded-full shrink-0"
                   style={{ background: 'var(--success)' }}
                 />
               )}
@@ -361,11 +366,11 @@ export function SessionSidebar({
       </div>
 
       {/* Scrollable Projects + History */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1 space-y-4">
+      <div className="chat-scroll flex-1 overflow-y-auto px-2.5 pb-3 pt-1.5 space-y-5">
         {/* Projects section */}
         <div>
-          <div className="px-2.5 pb-1 flex items-center justify-between">
-            <span className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
+          <div className="px-3 pb-1.5 flex items-center justify-between">
+            <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
               项目
             </span>
             <button
@@ -376,10 +381,10 @@ export function SessionSidebar({
                 if (isMobile) onCloseMobile()
               }}
               title="新建项目记忆空间"
-              className="p-1 rounded-md sidebar-row pressable cursor-pointer"
+              className="p-1.5 rounded-lg sidebar-row pressable cursor-pointer"
               style={{ color: 'var(--text-muted)' }}
             >
-              <FolderPlus size={13} />
+              <FolderPlus size={15} />
             </button>
           </div>
 
@@ -390,14 +395,14 @@ export function SessionSidebar({
                 onCreateProject()
                 if (isMobile) onCloseMobile()
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs sidebar-row cursor-pointer text-left"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[13.5px] sidebar-row cursor-pointer text-left"
               style={{ color: 'var(--text-muted)' }}
             >
-              <Plus size={13} />
+              <Plus size={15} />
               <span>创建第一个项目记忆…</span>
             </button>
           ) : (
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {projects.map((p) => {
                 const projSessions = sessions.filter((s) => s.project_id === p.id && !s.is_main)
                 const isExpanded = Boolean(expandedProjects[p.id])
@@ -412,7 +417,7 @@ export function SessionSidebar({
                         onSelectProject(p.id)
                         if (isMobile) onCloseMobile()
                       }}
-                      className="group flex items-center gap-1.5 px-2 py-1.5 rounded-xl cursor-pointer sidebar-row"
+                      className="group flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer sidebar-row"
                       style={{
                         color: isActiveProj ? 'var(--text-primary)' : 'var(--text-secondary)',
                       }}
@@ -429,10 +434,10 @@ export function SessionSidebar({
                         }}
                         title={isExpanded ? '折叠项目对话' : '展开项目对话'}
                       >
-                        <ChevronRight size={12} />
+                        <ChevronRight size={14} />
                       </button>
-                      <span className="text-[14px] leading-none shrink-0">{p.emoji || '📁'}</span>
-                      <span className="flex-1 truncate text-[13.5px] font-medium">{p.name}</span>
+                      <span className="text-base leading-none shrink-0">{p.emoji || '📁'}</span>
+                      <span className="flex-1 truncate text-[14.5px] font-medium">{p.name}</span>
 
                       <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
                         <button
@@ -447,7 +452,7 @@ export function SessionSidebar({
                           className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
                           style={{ color: 'var(--text-muted)' }}
                         >
-                          <Plus size={12} />
+                          <Plus size={14} />
                         </button>
                         <button
                           type="button"
@@ -460,7 +465,7 @@ export function SessionSidebar({
                           className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
                           style={{ color: 'var(--text-muted)' }}
                         >
-                          <BookOpen size={12} />
+                          <BookOpen size={14} />
                         </button>
                       </div>
                     </div>
@@ -469,7 +474,7 @@ export function SessionSidebar({
                     <div className="accordion-grid" data-open={isExpanded ? 'true' : 'false'}>
                       <div className="accordion-inner">
                         <div
-                          className="ml-4 pl-2 my-0.5 space-y-0.5"
+                          className="ml-4 pl-2.5 my-1 space-y-0.5"
                           style={{ borderLeft: '1px solid var(--border-subtle)' }}
                         >
                           {projSessions.length === 0 ? (
@@ -479,7 +484,7 @@ export function SessionSidebar({
                                 onNewProjectSession(p.id)
                                 if (isMobile) onCloseMobile()
                               }}
-                              className="w-full text-left px-2 py-1.5 rounded-lg text-[11.5px] sidebar-row cursor-pointer"
+                              className="w-full text-left px-2.5 py-2 rounded-lg text-[13px] sidebar-row cursor-pointer"
                               style={{ color: 'var(--text-muted)' }}
                             >
                               + 开始项目对话
@@ -499,11 +504,11 @@ export function SessionSidebar({
 
         {/* Standalone chat history grouped by date */}
         {groupedStandalone.length > 0 && (
-          <div className="space-y-3.5">
+          <div className="space-y-4">
             {groupedStandalone.map((group) => (
               <div key={group.label}>
                 <div
-                  className="px-2.5 pb-1 text-[11px] font-medium"
+                  className="px-3 pb-1.5 text-xs font-medium"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   {group.label}
@@ -520,12 +525,12 @@ export function SessionSidebar({
       {/* Bottom-left unified Account & Settings Popover */}
       <div
         ref={menuWrapRef}
-        className="p-2 relative shrink-0"
+        className="p-2.5 relative shrink-0"
         style={{ borderTop: '1px solid var(--border-subtle)' }}
       >
         {menuOpen && (
           <div
-            className="absolute left-2 right-2 bottom-[calc(100%+6px)] rounded-2xl p-1.5 z-50 animate-pop-up"
+            className="absolute left-2.5 right-2.5 bottom-[calc(100%+8px)] rounded-2xl p-1.5 z-50 animate-pop-up"
             style={{
               background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
@@ -539,33 +544,33 @@ export function SessionSidebar({
                 onOpenSettings('persona')
                 if (isMobile) onCloseMobile()
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] sidebar-row cursor-pointer text-left"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
               style={{ color: 'var(--text-primary)' }}
             >
-              <Sparkles size={14} className="shrink-0 opacity-75" />
+              <Sparkles size={15} className="shrink-0 opacity-75" />
               <span>助手人设与定制</span>
             </button>
 
             <div
-              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-[13px]"
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-[14px]"
               style={{ color: 'var(--text-primary)' }}
             >
-              <span className="flex items-center gap-2.5">
+              <span className="flex items-center gap-3">
                 {theme === 'light' ? (
-                  <Sun size={14} className="shrink-0 opacity-75" />
+                  <Sun size={15} className="shrink-0 opacity-75" />
                 ) : (
-                  <Moon size={14} className="shrink-0 opacity-75" />
+                  <Moon size={15} className="shrink-0 opacity-75" />
                 )}
                 <span>外观</span>
               </span>
               <div
-                className="flex items-center p-0.5 rounded-lg text-[11px]"
+                className="flex items-center p-0.5 rounded-lg text-xs"
                 style={{ background: 'var(--bg-elevated)' }}
               >
                 <button
                   type="button"
                   onClick={() => onSetTheme('light')}
-                  className="px-2 py-0.5 rounded-md pressable cursor-pointer"
+                  className="px-2.5 py-1 rounded-md pressable cursor-pointer"
                   style={{
                     background: theme === 'light' ? 'var(--bg-surface)' : 'transparent',
                     color: theme === 'light' ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -577,7 +582,7 @@ export function SessionSidebar({
                 <button
                   type="button"
                   onClick={() => onSetTheme('dark')}
-                  className="px-2 py-0.5 rounded-md pressable cursor-pointer"
+                  className="px-2.5 py-1 rounded-md pressable cursor-pointer"
                   style={{
                     background: theme === 'dark' ? 'var(--bg-surface)' : 'transparent',
                     color: theme === 'dark' ? 'var(--text-primary)' : 'var(--text-muted)',
@@ -596,10 +601,10 @@ export function SessionSidebar({
                 onOpenSettings('account')
                 if (isMobile) onCloseMobile()
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] sidebar-row cursor-pointer text-left"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
               style={{ color: 'var(--text-primary)' }}
             >
-              <SlidersHorizontal size={14} className="shrink-0 opacity-75" />
+              <SlidersHorizontal size={15} className="shrink-0 opacity-75" />
               <span>账号与安全</span>
             </button>
 
@@ -612,10 +617,10 @@ export function SessionSidebar({
                   onInstallApp()
                   if (isMobile) onCloseMobile()
                 }}
-                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] sidebar-row cursor-pointer text-left"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
                 style={{ color: 'var(--text-primary)' }}
               >
-                <Download size={14} className="shrink-0 opacity-75" />
+                <Download size={15} className="shrink-0 opacity-75" />
                 <span>安装为手机 / 桌面应用</span>
               </button>
             )}
@@ -628,10 +633,10 @@ export function SessionSidebar({
                 setMenuOpen(false)
                 onLogout()
               }}
-              className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[13px] sidebar-row cursor-pointer text-left"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
               style={{ color: 'var(--danger)' }}
             >
-              <LogOut size={14} className="shrink-0 opacity-85" />
+              <LogOut size={15} className="shrink-0 opacity-85" />
               <span>退出登录</span>
             </button>
           </div>
@@ -641,15 +646,15 @@ export function SessionSidebar({
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           data-testid="user-menu-trigger"
-          className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl sidebar-row cursor-pointer"
+          className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl sidebar-row cursor-pointer"
           style={{
             background: menuOpen ? 'var(--bg-hover)' : 'transparent',
             color: 'var(--text-primary)',
           }}
         >
-          <span className="flex items-center gap-2.5 min-w-0">
+          <span className="flex items-center gap-3 min-w-0">
             <span
-              className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-base shrink-0"
               style={{
                 background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
@@ -657,9 +662,9 @@ export function SessionSidebar({
             >
               {user.avatar_emoji}
             </span>
-            <span className="truncate text-[13.5px] font-medium">{user.display_name}</span>
+            <span className="truncate text-[14.5px] font-medium">{user.display_name}</span>
           </span>
-          <MoreHorizontal size={15} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
+          <MoreHorizontal size={16} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
         </button>
       </div>
     </aside>
@@ -671,7 +676,7 @@ export function SessionSidebar({
       <div
         className="hidden lg:block h-full shrink-0 overflow-hidden panel-slide"
         style={{
-          width: desktopOpen ? '264px' : '0px',
+          width: desktopOpen ? '276px' : '0px',
           opacity: desktopOpen ? 1 : 0,
         }}
         aria-hidden={!desktopOpen}
@@ -697,7 +702,9 @@ export function SessionSidebar({
         >
           {sidebarBody(true)}
         </div>
-        <div className="flex-1 bg-black/40" onClick={onCloseMobile} />
+        {openMobile && (
+          <div className="flex-1 bg-black/40 animate-backdrop-in" onClick={onCloseMobile} />
+        )}
       </div>
     </>
   )

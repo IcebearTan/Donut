@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { StickToBottom } from 'use-stick-to-bottom'
 import {
   ArrowUp,
   BookOpen,
@@ -415,6 +414,8 @@ export function ChatView({
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const nearBottomRef = useRef(true)
 
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
@@ -437,13 +438,30 @@ export function ChatView({
           '梳理今天最重要的 3 件待办',
         ]
 
-  // Auto-grow textarea height smoothly
+  // Auto-grow textarea height smoothly WITHOUT showing a scrollbar on single/short lines
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
+    const maxH = 160
     el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`
+    const nextH = Math.min(el.scrollHeight, maxH)
+    el.style.height = `${nextH}px`
+    el.style.overflowY = el.scrollHeight > maxH ? 'auto' : 'hidden'
   }, [input])
+
+  // Smart stick-to-bottom on single native scroll container (zero nested scrollbars)
+  const lastMsg = messages[messages.length - 1]
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !nearBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [messages.length, lastMsg?.content, lastMsg?.thinking, lastMsg?.deliveryStatus])
+
+  function handleChatScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96
+  }
 
   async function handleFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
@@ -468,6 +486,7 @@ export function ChatView({
     if (streaming) return
     const text = input.trim()
     if (!text && pendingImages.length === 0) return
+    nearBottomRef.current = true
     onSend(
       text,
       pendingImages.map((i) => i.id),
@@ -565,12 +584,12 @@ export function ChatView({
           </div>
         </div>
       ) : (
-        <StickToBottom
-          className="flex-1 overflow-y-auto px-3.5 sm:px-6 pt-4 lg:pt-8 pb-4 sm:pb-6"
-          resize="smooth"
-          initial="instant"
+        <div
+          ref={scrollRef}
+          onScroll={handleChatScroll}
+          className="chat-scroll flex-1 min-h-0 overflow-y-auto overscroll-none"
         >
-          <StickToBottom.Content className="space-y-4 sm:space-y-5 pb-3">
+          <div className="px-4 sm:px-6 pt-4 lg:pt-8 pb-6 space-y-4 sm:space-y-5">
             {messages.map((m, idx) => {
               const prev = idx > 0 ? messages[idx - 1] : null
               const showTimeDivider =
@@ -601,8 +620,8 @@ export function ChatView({
                 </div>
               )
             })}
-          </StickToBottom.Content>
-        </StickToBottom>
+          </div>
+        </div>
       )}
 
       {/* Composer */}
@@ -675,7 +694,7 @@ export function ChatView({
                   ? `在「${activeProject.name}」中给 ${assistantName} 发消息…`
                   : `给 ${assistantName} 发消息…`
               }
-              className="flex-1 resize-none bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-44"
+              className="flex-1 resize-none overflow-y-hidden bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-40"
               style={{ color: 'var(--text-primary)' }}
             />
 
