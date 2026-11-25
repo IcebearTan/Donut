@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from .config import OPENCLAW_GATEWAY_URL
 from .db import db_session
 from .persona import get_agent_workspace
+from .vault import list_user_skills, list_user_vault_files
 
 
 def _load_openclaw_meta() -> tuple[str, bool, bool]:
@@ -253,6 +254,10 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
     if has_memory:
         connections.append({"id": "memory", "label": "长期记忆 · Wiki", "online": gateway_online})
 
+    skills = list_user_skills(uid)
+    vault_map = list_user_vault_files(uid)
+    vault_total = sum(len(v) for v in vault_map.values())
+
     return {
         "gateway_online": gateway_online,
         "model_label": model_label,
@@ -262,6 +267,9 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
             "total_sessions": total_sessions,
             "last_active_at": last_active_at,
             "projects_count": len(projects_summary),
+            "skills_count": len(skills),
+            "vault_files_count": vault_total,
         },
+        "skills": skills[:12],
         "activities": activities,
     }

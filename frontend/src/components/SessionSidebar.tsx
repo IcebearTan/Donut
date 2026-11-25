@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Compass,
   Download,
+  FolderArchive,
   FolderPlus,
   LogOut,
   Moon,
@@ -20,6 +21,7 @@ import {
   X,
 } from 'lucide-react'
 import type { ChatSession, PortalAppItem, ProjectItem, UserProfile } from '../api/client'
+import type { VaultTab } from './VaultModal'
 
 interface Props {
   user: UserProfile
@@ -46,6 +48,7 @@ interface Props {
   onDeleteSession: (id: string) => void
   onSetTheme: (theme: 'light' | 'dark') => void
   onOpenSettings: (tab: 'persona' | 'account') => void
+  onOpenVault: (tab?: VaultTab) => void
   showInstallApp?: boolean
   onInstallApp?: () => void
   onLogout: () => void
@@ -99,6 +102,7 @@ export function SessionSidebar({
   onDeleteSession,
   onSetTheme,
   onOpenSettings,
+  onOpenVault,
   showInstallApp,
   onInstallApp,
   onLogout,
@@ -107,7 +111,8 @@ export function SessionSidebar({
   const [draftTitle, setDraftTitle] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
-  const menuWrapRef = useRef<HTMLDivElement>(null)
+  const desktopMenuRef = useRef<HTMLDivElement>(null)
+  const mobileMenuRef = useRef<HTMLDivElement>(null)
 
   const assistantEmoji = user.assistant_emoji || '🍩'
   const assistantName = user.assistant_name || 'Donut'
@@ -128,7 +133,10 @@ export function SessionSidebar({
   useEffect(() => {
     if (!menuOpen) return
     function onDocClick(e: MouseEvent) {
-      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const inDesktop = desktopMenuRef.current?.contains(target)
+      const inMobile = mobileMenuRef.current?.contains(target)
+      if (!inDesktop && !inMobile) {
         setMenuOpen(false)
       }
     }
@@ -334,6 +342,20 @@ export function SessionSidebar({
           <span>新对话</span>
         </button>
 
+        <button
+          type="button"
+          data-testid="open-vault-nav"
+          onClick={() => {
+            onOpenVault('artifacts')
+            if (isMobile) onCloseMobile()
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          <FolderArchive size={17} className="shrink-0 opacity-80" />
+          <span>文件仓与技能</span>
+        </button>
+
         {externalApps.map((app) => {
           const isActive = activeAppId === app.id
           return (
@@ -524,7 +546,7 @@ export function SessionSidebar({
 
       {/* Bottom-left unified Account & Settings Popover — compact & balanced */}
       <div
-        ref={menuWrapRef}
+        ref={isMobile ? mobileMenuRef : desktopMenuRef}
         className={`px-2.5 pt-1.5 relative shrink-0 ${
           isMobile ? 'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]' : 'pb-2'
         }`}

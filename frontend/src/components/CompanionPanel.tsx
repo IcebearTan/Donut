@@ -3,6 +3,7 @@ import {
   Activity,
   BookOpen,
   Compass,
+  FolderArchive,
   FolderKanban,
   Loader2,
   MessageCircle,
@@ -13,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import type { CompanionStatus, ProjectItem, UserProfile } from '../api/client'
+import type { VaultTab } from './VaultModal'
 
 export interface LiveStreamState {
   streaming: boolean
@@ -37,6 +39,7 @@ interface Props {
   onEditProject: (projectId: string) => void
   onSelectProject: (projectId: string) => void
   onDistillActive: () => void
+  onOpenVault: (tab?: VaultTab) => void
 }
 
 function formatRelativeTime(ts: number | null): string {
@@ -78,6 +81,7 @@ export function CompanionPanel({
   onEditProject,
   onSelectProject,
   onDistillActive,
+  onOpenVault,
 }: Props) {
   const [elapsedSec, setElapsedSec] = useState(0)
 
@@ -217,6 +221,91 @@ export function CompanionPanel({
           </div>
         </div>
       ) : null}
+
+      {/* Self-Evolving Skills & Isolated File Vault */}
+      <div>
+        <div
+          className="text-[11px] font-medium mb-2 px-0.5"
+          style={{ color: 'var(--text-muted)' }}
+        >
+          自进化能力与文件仓
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            data-testid={isMobile ? 'mobile-skills-card-btn' : 'skills-card-btn'}
+            onClick={() => {
+              if (isMobile) onCloseMobile()
+              onOpenVault('skills')
+            }}
+            className="text-left px-3 lg:px-2.5 py-2 rounded-xl sidebar-row pressable cursor-pointer"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              <Sparkles size={11} />
+              <span>已掌握技能</span>
+            </div>
+            <div className="text-sm font-semibold mt-0.5 tabular-nums">
+              {status?.stats.skills_count ?? 0}
+              <span className="text-[11px] font-normal ml-1" style={{ color: 'var(--text-muted)' }}>
+                项
+              </span>
+            </div>
+          </button>
+          <button
+            type="button"
+            data-testid={isMobile ? 'mobile-vault-card-btn' : 'vault-card-btn'}
+            onClick={() => {
+              if (isMobile) onCloseMobile()
+              onOpenVault('artifacts')
+            }}
+            className="text-left px-3 lg:px-2.5 py-2 rounded-xl sidebar-row pressable cursor-pointer"
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              <FolderArchive size={11} />
+              <span>隔离文件仓</span>
+            </div>
+            <div className="text-sm font-semibold mt-0.5 tabular-nums">
+              {status?.stats.vault_files_count ?? 0}
+              <span className="text-[11px] font-normal ml-1" style={{ color: 'var(--text-muted)' }}>
+                个
+              </span>
+            </div>
+          </button>
+        </div>
+
+        {status?.skills && status.skills.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {status.skills.slice(0, 4).map((sk) => (
+              <button
+                key={sk.id}
+                type="button"
+                onClick={() => {
+                  if (isMobile) onCloseMobile()
+                  onOpenVault('skills')
+                }}
+                title={sk.description || sk.name}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] sidebar-row pressable cursor-pointer max-w-full"
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <Sparkles size={10} className="shrink-0 opacity-70" />
+                <span className="truncate max-w-[104px]">{sk.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Connection status */}
       <div>

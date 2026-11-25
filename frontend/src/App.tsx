@@ -8,6 +8,7 @@ import {
   type CompanionStatus,
   type PortalAppItem,
   type ProjectItem,
+  type UploadedAttachment,
   type UserProfile,
 } from './api/client'
 import { LoginView } from './components/LoginView'
@@ -17,6 +18,7 @@ import { CompanionPanel, type LiveStreamState } from './components/CompanionPane
 import { SettingsModal } from './components/SettingsModal'
 import { ProjectModal } from './components/ProjectModal'
 import { PwaInstallModal } from './components/PwaInstallModal'
+import { VaultModal, type VaultTab } from './components/VaultModal'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -76,6 +78,10 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileCompanionOpen, setMobileCompanionOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'persona' | 'account' | null>(null)
+  const [vaultModal, setVaultModal] = useState<{ open: boolean; tab: VaultTab }>({
+    open: false,
+    tab: 'artifacts',
+  })
   const [projectModal, setProjectModal] = useState<{ open: boolean; projectId: string | null }>({
     open: false,
     projectId: null,
@@ -310,13 +316,25 @@ export function App() {
     }
   }
 
-  async function handleSend(text: string, imageIds: string[], imageUrls: string[]) {
+  async function handleSend(text: string, attachments: UploadedAttachment[]) {
     let sid = activeSessionId
     if (!sid) {
       const created = await api.createSession('新对话', activeProjectId)
       sid = created.session.id
       setSessions((prev) => [created.session, ...prev])
       setActiveSessionId(sid)
+    }
+
+    const imageFiles = attachments.filter((f) => f.is_image)
+    const docFiles = attachments.filter((f) => !f.is_image)
+    const imageIds = imageFiles.map((f) => f.id)
+    const imageUrls = imageFiles.map((f) => f.url)
+    const attachmentIds = docFiles.map((f) => f.id)
+
+    let displayText = text
+    if (docFiles.length > 0) {
+      const chips = docFiles.map((f) => `📎 \`${f.name}\``).join(' ')
+      displayText = displayText ? `${displayText}\n\n${chips}` : chips
     }
 
     const tempUserId = `u-${Date.now()}`
@@ -329,7 +347,7 @@ export function App() {
       {
         id: tempUserId,
         role: 'user',
-        content: text,
+        content: displayText,
         images: imageUrls,
         created_at: sentAt,
         deliveryStatus: 'sending',
@@ -483,7 +501,7 @@ export function App() {
 
     try {
       await streamChat(
-        { session_id: sid, content: text, images: imageIds },
+        { session_id: sid, content: text, images: imageIds, attachments: attachmentIds },
         (ev) => {
           if (ev.type === 'meta') {
             setSessions((prev) =>
@@ -748,6 +766,7 @@ export function App() {
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
         onOpenSettings={(tab) => setSettingsTab(tab)}
+        onOpenVault={(tab = 'artifacts') => setVaultModal({ open: true, tab })}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
@@ -885,6 +904,7 @@ export function App() {
               onEditProject={(pid) => setProjectModal({ open: true, projectId: pid })}
               onSelectProject={handleSelectProject}
               onDistillActive={handleDistillActiveProject}
+              onOpenVault={(tab = 'artifacts') => setVaultModal({ open: true, tab })}
             />
           </div>
         )}
@@ -954,6 +974,15 @@ export function App() {
           isSecureOrigin={window.isSecureContext}
           onTriggerNativeInstall={handleTriggerNativePwaInstall}
           onClose={() => setPwaModalOpen(false)}
+        />
+      )}
+
+      {vaultModal.open && (
+        <VaultModal
+          user={user}
+          initialTab={vaultModal.tab}
+          onChanged={() => refreshStatus()}
+          onClose={() => setVaultModal((prev) => ({ ...prev, open: false }))}
         />
       )}
     </div>

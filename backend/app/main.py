@@ -48,6 +48,15 @@ from .projects import (
     rebuild_projects_index,
 )
 from .status import get_companion_status
+from .vault import (
+    ALLOWED_DOC_EXTS,
+    ensure_user_vault,
+    list_user_skills,
+    list_user_vault_files,
+    resolve_attachment_path,
+    resolve_vault_file,
+    sanitize_filename,
+)
 
 
 @asynccontextmanager
@@ -650,7 +659,7 @@ def get_messages(session_id: str, user: dict = Depends(get_current_user)) -> dic
 
 
 # ---------------------------------------------------------------------------
-# User-scoped Image Uploads (for DeepSeek / Gemini Vision)
+# User-Isolated File Vault (inbox / artifacts / archive) & Self-Evolved Skills
 # ---------------------------------------------------------------------------
 
 
@@ -666,39 +675,138 @@ async def upload_image(
         img = ImageOps.exif_transpose(img)
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGB")
-        # Resize very large phone photos to max 1600px on longest side for fast vision API
         img.thumbnail((1600, 1600))
     except Exception:
         raise HTTPException(status_code=400, detail="不支持的图片格式")
 
-    user_dir = UPLOAD_DIR / user["id"]
-    user_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"{uuid.uuid4().hex[:16]}.webp"
-    dest = user_dir / fname
+    dirs = ensure_user_vault(user["id"])
+    fname = f"img_{uuid.uuid4().hex[:12]}.webp"
+    dest = dirs["inbox"] / fname
     img.save(dest, format="WEBP", quality=85)
-    return {"id": fname, "url": f"/portal-api/uploads/{fname}"}
+    return {
+        "id": fname,
+        "name": file.filename or fname,
+        "url": f"/portal-api/vault/download/inbox/{fname}",
+        "is_image": True,
+        "size": dest.stat().st_size,
+        "ext": ".webp",
+    }
+
+
+@app.post("/portal-api/vault/upload")
+async def upload_vault_file(
+    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+) -> dict:
+    """Universal per-user file upload (images, PDF, Excel, Word, CSV, TXT, MD, ZIP)."""
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="单个文件不能超过 25MB")
+
+    orig_name = file.filename or "file"
+    ext = Path(orig_name).suffix.lower()
+    ctype = (file.content_type or "").lower()
+    is_image = ctype.startswith("image/") or ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+    dirs = ensure_user_vault(user["id"])
+
+    if is_image:
+        try:
+            img = Image.open(BytesIO(raw))
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGB")
+            img.thumbnail((1600, 1600))
+        except Exception:
+            raise HTTPException(status_code=400, detail="不支持的图片格式")
+        fname = f"img_{uuid.uuid4().hex[:12]}.webp"
+        dest = dirs["inbox"] / fname
+        img.save(dest, format="WEBP", quality=85)
+        return {
+            "id": fname,
+            "name": orig_name,
+            "url": f"/portal-api/vault/download/inbox/{fname}",
+            "is_image": True,
+            "size": dest.stat().st_size,
+            "ext": ".webp",
+        }
+
+    if ext not in ALLOWED_DOC_EXTS:
+        raise HTTPException(
+            status_code=400,
+            detail="暂支持图片、PDF、Excel、Word、CSV、TXT、Markdown、JSON 与 ZIP 文件",
+        )
+
+    safe_base = sanitize_filename(orig_name, fallback_ext=ext)
+    dest = dirs["inbox"] / safe_base
+    if dest.exists():
+        stem = Path(safe_base).stem
+        safe_base = f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
+        dest = dirs["inbox"] / safe_base
+    dest.write_bytes(raw)
+    return {
+        "id": safe_base,
+        "name": orig_name,
+        "url": f"/portal-api/vault/download/inbox/{safe_base}",
+        "is_image": False,
+        "size": len(raw),
+        "ext": ext,
+    }
+
+
+@app.get("/portal-api/vault/files")
+def list_vault_files(user: dict = Depends(get_current_user)) -> dict:
+    return list_user_vault_files(user["id"])
+
+
+@app.get("/portal-api/vault/download/{scope}/{file_path:path}")
+def download_vault_file(
+    scope: str, file_path: str, user: dict = Depends(get_current_user)
+) -> FileResponse:
+    target = resolve_vault_file(user["id"], scope, file_path)
+    if not target or not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if target.suffix.lower() == ".webp":
+        return FileResponse(target, media_type="image/webp")
+    return FileResponse(target, filename=target.name)
+
+
+@app.delete("/portal-api/vault/files/{scope}/{file_path:path}")
+def delete_vault_file(
+    scope: str, file_path: str, user: dict = Depends(get_current_user)
+) -> dict:
+    target = resolve_vault_file(user["id"], scope, file_path)
+    if not target or not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    target.unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@app.get("/portal-api/skills")
+def get_user_skills(user: dict = Depends(get_current_user)) -> dict:
+    return {"skills": list_user_skills(user["id"])}
 
 
 @app.get("/portal-api/uploads/{filename}")
 def serve_upload(filename: str, user: dict = Depends(get_current_user)) -> FileResponse:
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
-    path = UPLOAD_DIR / user["id"] / filename
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(path, media_type="image/webp")
+    dirs = ensure_user_vault(user["id"])
+    for candidate in (dirs["inbox"] / filename, UPLOAD_DIR / user["id"] / filename):
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(candidate, media_type="image/webp")
+    raise HTTPException(status_code=404, detail="Image not found")
 
 
 @app.get("/portal-api/files/{filename}")
 def serve_generated_file(filename: str, user: dict = Depends(get_current_user)) -> FileResponse:
-    """Download user-isolated generated files (e.g. merged reimbursement PDFs, Excel tables)."""
+    """Download user-isolated generated files (checks vault/artifacts first, then legacy generated/)."""
     if "/" in filename or "\\" in filename or ".." in filename or not filename.strip():
         raise HTTPException(status_code=400, detail="Invalid filename")
-    user_gen_dir = GENERATED_DIR / user["id"]
-    path = user_gen_dir / filename
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path, filename=filename)
+    dirs = ensure_user_vault(user["id"])
+    for candidate in (dirs["artifacts"] / filename, GENERATED_DIR / user["id"] / filename):
+        if candidate.exists() and candidate.is_file():
+            return FileResponse(candidate, filename=filename)
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 # ---------------------------------------------------------------------------
@@ -710,6 +818,7 @@ class ChatStreamRequest(BaseModel):
     session_id: str
     content: str = Field(default="", max_length=20000)
     images: list[str] = Field(default_factory=list, max_length=10)
+    attachments: list[str] = Field(default_factory=list, max_length=10)
 
 
 @app.post("/portal-api/chat/stream")
@@ -717,19 +826,31 @@ async def chat_stream(
     body: ChatStreamRequest, user: dict = Depends(get_current_user)
 ) -> StreamingResponse:
     text = body.content.strip()
-    if not text and not body.images:
+    raw_file_ids = list(dict.fromkeys([*(body.images or []), *(body.attachments or [])]))
+    if not text and not raw_file_ids:
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
-    # Resolve & validate uploaded images strictly inside current user's directory
+    # Resolve & validate uploaded images & documents strictly inside current user's isolated vault
     image_paths: list[Path] = []
-    image_urls: list[str] = []
-    for img_id in body.images:
-        if "/" in img_id or "\\" in img_id or ".." in img_id:
+    doc_paths: list[Path] = []
+    display_image_urls: list[str] = []
+    doc_display_names: list[str] = []
+
+    for fid in raw_file_ids:
+        p, url, is_img = resolve_attachment_path(user["id"], fid)
+        if not p:
             continue
-        p = UPLOAD_DIR / user["id"] / img_id
-        if p.exists():
+        if is_img:
             image_paths.append(p)
-            image_urls.append(f"/portal-api/uploads/{img_id}")
+            display_image_urls.append(url)
+        else:
+            doc_paths.append(p)
+            doc_display_names.append(p.name)
+
+    display_text = text
+    if doc_display_names:
+        chips_line = " ".join(f"📎 `{name}`" for name in doc_display_names)
+        display_text = f"{display_text}\n\n{chips_line}".strip() if display_text else chips_line
 
     user_msg_id = uuid.uuid4().hex[:16]
     asst_msg_id = uuid.uuid4().hex[:16]
@@ -742,12 +863,13 @@ async def chat_stream(
             INSERT INTO chat_messages (id, session_id, role, content, images_json, created_at)
             VALUES (?, ?, 'user', ?, ?, ?)
             """,
-            (user_msg_id, body.session_id, text, json.dumps(image_urls), ts),
+            (user_msg_id, body.session_id, display_text, json.dumps(display_image_urls), ts),
         )
         # Auto-title non-main new sessions from first user message
         new_title = sess["title"]
-        if not sess.get("is_main") and sess["title"] == "新对话" and text:
-            new_title = text.replace("\n", " ")[:24]
+        if not sess.get("is_main") and sess["title"] == "新对话" and (text or doc_display_names):
+            seed_title = text or f"文件：{doc_display_names[0]}"
+            new_title = seed_title.replace("\n", " ")[:24]
         conn.execute(
             "UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?",
             (new_title, ts, body.session_id),
@@ -762,15 +884,15 @@ async def chat_stream(
     turn_instructions = build_turn_instructions(user["id"], active_project, all_projects)
 
     # Keep system prompt prefix 100% static so DeepSeek KV-cache hits at 95%+ (50x cheaper!).
-    # Only append per-turn uploaded image paths at the TAIL of the current user message payload (never in instructions).
-    user_gen_dir = GENERATED_DIR / user["id"]
-    user_gen_dir.mkdir(parents=True, exist_ok=True)
-    openclaw_text = text or "请帮我看看这张图片"
-    if image_paths:
-        paths_list = "\n".join(f"- {p}" for p in image_paths)
+    # Append per-turn uploaded file paths at the TAIL of the user message payload.
+    ensure_user_vault(user["id"])
+    openclaw_text = text or ("请帮我看看这些附件" if doc_paths else "请帮我看看这张图片")
+    all_attached = [*image_paths, *doc_paths]
+    if all_attached:
+        paths_list = "\n".join(f"- {p}" for p in all_attached)
         openclaw_text = (
             f"{openclaw_text}\n\n"
-            f"[附件本地路径（如需用脚本合成为 PDF 可直接传入）：\n{paths_list}]"
+            f"[本次上传附件在用户隔离仓中的本地路径（可直接读取、整理、合并或归档到 vault/archive/）：\n{paths_list}]"
         )
 
     async def event_generator():

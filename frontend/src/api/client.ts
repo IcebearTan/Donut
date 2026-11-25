@@ -34,6 +34,38 @@ export interface CompanionActivityItem {
   at: number
 }
 
+export interface SkillItem {
+  id: string
+  name: string
+  description: string
+  updated_at: number
+}
+
+export interface VaultFileItem {
+  scope: 'inbox' | 'artifacts' | 'archive'
+  path: string
+  name: string
+  ext: string
+  size: number
+  updated_at: number
+  url: string
+}
+
+export interface VaultFilesResponse {
+  inbox: VaultFileItem[]
+  artifacts: VaultFileItem[]
+  archive: VaultFileItem[]
+}
+
+export interface UploadedAttachment {
+  id: string
+  name: string
+  url: string
+  is_image: boolean
+  size: number
+  ext: string
+}
+
 export interface CompanionStatus {
   gateway_online: boolean
   model_label: string
@@ -43,7 +75,10 @@ export interface CompanionStatus {
     total_sessions: number
     last_active_at: number | null
     projects_count?: number
+    skills_count?: number
+    vault_files_count?: number
   }
+  skills?: SkillItem[]
   activities: CompanionActivityItem[]
 }
 
@@ -186,11 +221,29 @@ export const api = {
   uploadImage: async (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    return request<{ id: string; url: string }>('/portal-api/uploads', {
+    return request<UploadedAttachment>('/portal-api/uploads', {
       method: 'POST',
       body: form,
     })
   },
+  uploadVaultFile: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<UploadedAttachment>('/portal-api/vault/upload', {
+      method: 'POST',
+      body: form,
+    })
+  },
+  listVaultFiles: () => request<VaultFilesResponse>('/portal-api/vault/files'),
+  deleteVaultFile: (scope: 'inbox' | 'artifacts' | 'archive', filePath: string) =>
+    request<{ ok: boolean }>(
+      `/portal-api/vault/files/${scope}/${filePath
+        .split('/')
+        .map((seg) => encodeURIComponent(seg))
+        .join('/')}`,
+      { method: 'DELETE' },
+    ),
+  listSkills: () => request<{ skills: SkillItem[] }>('/portal-api/skills'),
   launchApp: (appId: string) =>
     request<{ url: string }>(`/portal-api/apps/${encodeURIComponent(appId)}/launch`),
   getPersona: () => request<PersonaData>('/portal-api/persona'),
@@ -244,7 +297,7 @@ export const api = {
 }
 
 export async function streamChat(
-  params: { session_id: string; content: string; images: string[] },
+  params: { session_id: string; content: string; images: string[]; attachments?: string[] },
   onEvent: (ev: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

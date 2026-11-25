@@ -12,8 +12,8 @@ import {
   Copy,
   Download,
   FileText,
-  ImagePlus,
   Loader2,
+  Paperclip,
   Sparkles,
   Square,
   Wrench,
@@ -24,6 +24,7 @@ import {
   type ChatMessage,
   type ProjectItem,
   type ToolCallItem,
+  type UploadedAttachment,
   type UserProfile,
 } from '../api/client'
 
@@ -33,7 +34,7 @@ interface Props {
   isMainSession?: boolean
   messages: ChatMessage[]
   streaming: boolean
-  onSend: (text: string, imageIds: string[], imageUrls: string[]) => void
+  onSend: (text: string, attachments: UploadedAttachment[]) => void
   onStop: () => void
   onOpenProjectMemory?: (projectId: string) => void
 }
@@ -327,7 +328,11 @@ function AssistantBubble({ msg, user }: { msg: ChatMessage; user: UserProfile })
                 components={{
                   pre: ({ children }) => <>{children}</>,
                   a: ({ href, children, ...rest }) => {
-                    if (href && href.startsWith('/portal-api/files/')) {
+                    if (
+                      href &&
+                      (href.startsWith('/portal-api/files/') ||
+                        href.startsWith('/portal-api/vault/download/'))
+                    ) {
                       return (
                         <a
                           href={href}
@@ -481,7 +486,7 @@ export function ChatView({
   onOpenProjectMemory,
 }: Props) {
   const [input, setInput] = useState('')
-  const [pendingImages, setPendingImages] = useState<Array<{ id: string; url: string }>>([])
+  const [pendingFiles, setPendingFiles] = useState<UploadedAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -535,18 +540,18 @@ export function ChatView({
   }
 
   async function handleFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    const list = Array.from(files)
     if (list.length === 0) return
     setUploading(true)
     try {
-      const added: Array<{ id: string; url: string }> = []
-      for (const file of list.slice(0, 10 - pendingImages.length)) {
-        const res = await api.uploadImage(file)
+      const added: UploadedAttachment[] = []
+      for (const file of list.slice(0, 10 - pendingFiles.length)) {
+        const res = await api.uploadVaultFile(file)
         added.push(res)
       }
-      setPendingImages((prev) => [...prev, ...added].slice(0, 10))
+      setPendingFiles((prev) => [...prev, ...added].slice(0, 10))
     } catch (e) {
-      alert(e instanceof Error ? e.message : '图片上传失败')
+      alert(e instanceof Error ? e.message : '文件上传失败')
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -556,15 +561,11 @@ export function ChatView({
   function submit() {
     if (streaming) return
     const text = input.trim()
-    if (!text && pendingImages.length === 0) return
+    if (!text && pendingFiles.length === 0) return
     nearBottomRef.current = true
-    onSend(
-      text,
-      pendingImages.map((i) => i.id),
-      pendingImages.map((i) => i.url),
-    )
+    onSend(text, pendingFiles)
     setInput('')
-    setPendingImages([])
+    setPendingFiles([])
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -577,7 +578,7 @@ export function ChatView({
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const files: File[] = []
     for (const item of Array.from(e.clipboardData.items)) {
-      if (item.kind === 'file' && item.type.startsWith('image/')) {
+      if (item.kind === 'file') {
         const f = item.getAsFile()
         if (f) files.push(f)
       }
@@ -641,7 +642,7 @@ export function ChatView({
               <button
                 key={p}
                 type="button"
-                onClick={() => onSend(p, [], [])}
+                onClick={() => onSend(p, [])}
                 className="text-left p-3.5 rounded-2xl text-xs sm:text-sm leading-snug sidebar-row pressable cursor-pointer"
                 style={{
                   background: 'var(--bg-surface)',
@@ -705,31 +706,56 @@ export function ChatView({
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          {pendingImages.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-1.5 pb-2.5">
-              {pendingImages.map((img) => (
-                <div key={img.id} className="relative group">
-                  <img
-                    src={img.url}
-                    alt="预览"
-                    className="w-14 h-14 rounded-lg object-cover"
-                    style={{ border: '1px solid var(--border-subtle)' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPendingImages((prev) => prev.filter((x) => x.id !== img.id))
-                    }
-                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer"
+          {pendingFiles.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-1.5 pb-2.5">
+              {pendingFiles.map((f) =>
+                f.is_image ? (
+                  <div key={f.id} className="relative group">
+                    <img
+                      src={f.url}
+                      alt={f.name}
+                      className="w-14 h-14 rounded-lg object-cover"
+                      style={{ border: '1px solid var(--border-subtle)' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPendingFiles((prev) => prev.filter((x) => x.id !== f.id))
+                      }
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer"
+                      style={{
+                        background: 'var(--accent)',
+                        color: 'var(--accent-contrast)',
+                      }}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    key={f.id}
+                    className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-xl text-xs max-w-[210px]"
                     style={{
-                      background: 'var(--accent)',
-                      color: 'var(--accent-contrast)',
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-primary)',
                     }}
                   >
-                    <X size={11} />
-                  </button>
-                </div>
-              ))}
+                    <FileText size={13} className="shrink-0 opacity-75" />
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPendingFiles((prev) => prev.filter((x) => x.id !== f.id))
+                      }
+                      className="p-0.5 rounded-full hover:opacity-80 cursor-pointer shrink-0"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ),
+              )}
             </div>
           )}
 
@@ -737,20 +763,21 @@ export function ChatView({
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.pdf,.xlsx,.xls,.csv,.docx,.doc,.txt,.md,.json,.zip"
               multiple
               className="hidden"
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
             />
             <button
               type="button"
-              disabled={uploading || streaming || pendingImages.length >= 10}
+              disabled={uploading || streaming || pendingFiles.length >= 10}
               onClick={() => fileRef.current?.click()}
-              title="上传图片（支持 Ctrl+V 直接粘贴截图）"
+              title="上传图片或文件（支持 PDF / Excel / Word / 截图粘贴）"
+              data-testid="chat-upload-btn"
               className="p-2 rounded-xl sidebar-row pressable disabled:opacity-40 cursor-pointer shrink-0"
               style={{ color: 'var(--text-secondary)' }}
             >
-              {uploading ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
+              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
             </button>
 
             <textarea
@@ -763,7 +790,7 @@ export function ChatView({
               placeholder={
                 activeProject
                   ? `在「${activeProject.name}」中给 ${assistantName} 发消息…`
-                  : `给 ${assistantName} 发消息…`
+                  : `给 ${assistantName} 发消息，或直接丢入发票 / PDF / 表格…`
               }
               className="flex-1 resize-none overflow-y-hidden bg-transparent outline-none text-[15px] leading-relaxed py-1.5 max-h-40"
               style={{ color: 'var(--text-primary)' }}
@@ -785,7 +812,7 @@ export function ChatView({
             ) : (
               <button
                 type="button"
-                disabled={!input.trim() && pendingImages.length === 0}
+                disabled={!input.trim() && pendingFiles.length === 0}
                 onClick={submit}
                 title="发送"
                 className="p-2 rounded-xl shrink-0 pressable disabled:opacity-30 cursor-pointer"
