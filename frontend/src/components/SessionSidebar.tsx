@@ -243,7 +243,7 @@ export function SessionSidebar({
           }
         }}
         className={`group flex items-center gap-2 rounded-xl cursor-pointer sidebar-row ${
-          nested ? 'px-2.5 py-2' : 'px-3 py-2.5'
+          nested ? 'px-3 py-1.5' : 'px-3 py-2'
         }`}
         style={{
           color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
@@ -290,7 +290,7 @@ export function SessionSidebar({
           <>
             <span
               className={`flex-1 truncate leading-snug ${
-                nested ? 'text-[13.5px]' : 'text-[14.5px]'
+                nested ? 'text-[13.5px]' : 'text-[14px]'
               }`}
             >
               {s.title}
@@ -503,32 +503,23 @@ export function SessionSidebar({
                 return (
                   <div key={p.id}>
                     <div
+                      data-testid={`project-row-${p.id}`}
                       data-active={isActiveProj && !activeSessionId ? 'true' : 'false'}
                       onClick={() => {
-                        setExpandedProjects((prev) => ({ ...prev, [p.id]: true }))
-                        onSelectProject(p.id)
-                        if (isMobile) onCloseMobile()
+                        if (isActiveProj && isExpanded) {
+                          setExpandedProjects((prev) => ({ ...prev, [p.id]: false }))
+                        } else {
+                          setExpandedProjects((prev) => ({ ...prev, [p.id]: true }))
+                          onSelectProject(p.id)
+                          if (isMobile) onCloseMobile()
+                        }
                       }}
-                      className="group flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer sidebar-row"
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer sidebar-row"
                       style={{
                         color: isActiveProj ? 'var(--text-primary)' : 'var(--text-secondary)',
                       }}
                     >
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setExpandedProjects((prev) => ({ ...prev, [p.id]: !prev[p.id] }))
-                        }}
-                        className="p-0.5 rounded opacity-60 hover:opacity-100 cursor-pointer shrink-0 transition-transform duration-200"
-                        style={{
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                        }}
-                        title={isExpanded ? '折叠项目对话' : '展开项目对话'}
-                      >
-                        <ChevronRight size={14} />
-                      </button>
-                      <span className="text-base leading-none shrink-0">{p.emoji || '📁'}</span>
+                      <span className="text-[17px] leading-none shrink-0">{p.emoji || '📁'}</span>
                       <span className="flex-1 truncate text-[14.5px] font-medium">{p.name}</span>
 
                       <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
@@ -541,7 +532,7 @@ export function SessionSidebar({
                             if (isMobile) onCloseMobile()
                           }}
                           title="在此项目内新开对话"
-                          className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                          className="p-1 rounded-lg hover:opacity-80 pressable cursor-pointer"
                           style={{ color: 'var(--text-muted)' }}
                         >
                           <Plus size={14} />
@@ -554,7 +545,7 @@ export function SessionSidebar({
                             if (isMobile) onCloseMobile()
                           }}
                           title="查看 / 编辑项目记忆"
-                          className="p-1 rounded hover:opacity-80 pressable cursor-pointer"
+                          className="p-1 rounded-lg hover:opacity-80 pressable cursor-pointer"
                           style={{ color: 'var(--text-muted)' }}
                         >
                           <BookOpen size={14} />
@@ -562,13 +553,10 @@ export function SessionSidebar({
                       </div>
                     </div>
 
-                    {/* Smooth accordion for project sub-sessions */}
+                    {/* Smooth borderless accordion for project sub-sessions (pure whitespace indent) */}
                     <div className="accordion-grid" data-open={isExpanded ? 'true' : 'false'}>
                       <div className="accordion-inner">
-                        <div
-                          className="ml-4 pl-2.5 my-1 space-y-0.5"
-                          style={{ borderLeft: '1px solid var(--border-subtle)' }}
-                        >
+                        <div className="pl-5 mt-0.5 mb-1.5 space-y-0.5">
                           {projSessions.length === 0 ? (
                             <button
                               type="button"
@@ -576,7 +564,7 @@ export function SessionSidebar({
                                 onNewProjectSession(p.id)
                                 if (isMobile) onCloseMobile()
                               }}
-                              className="w-full text-left px-2.5 py-2 rounded-lg text-[13px] sidebar-row cursor-pointer"
+                              className="w-full text-left px-3 py-1.5 rounded-xl text-[13px] sidebar-row cursor-pointer"
                               style={{ color: 'var(--text-muted)' }}
                             >
                               + 开始项目对话
