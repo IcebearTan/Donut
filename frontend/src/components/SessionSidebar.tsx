@@ -522,10 +522,12 @@ export function SessionSidebar({
         )}
       </div>
 
-      {/* Bottom-left unified Account & Settings Popover */}
+      {/* Bottom-left unified Account & Settings Popover — compact & balanced */}
       <div
         ref={menuWrapRef}
-        className="p-2.5 relative shrink-0"
+        className={`px-2.5 pt-1.5 relative shrink-0 ${
+          isMobile ? 'pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]' : 'pb-2'
+        }`}
         style={{ borderTop: '1px solid var(--border-subtle)' }}
       >
         {menuOpen && (
@@ -646,15 +648,15 @@ export function SessionSidebar({
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           data-testid="user-menu-trigger"
-          className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl sidebar-row cursor-pointer"
+          className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl sidebar-row cursor-pointer"
           style={{
             background: menuOpen ? 'var(--bg-hover)' : 'transparent',
             color: 'var(--text-primary)',
           }}
         >
-          <span className="flex items-center gap-3 min-w-0">
+          <span className="flex items-center gap-2.5 min-w-0">
             <span
-              className="w-8 h-8 rounded-full flex items-center justify-center text-base shrink-0"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-sm shrink-0"
               style={{
                 background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-subtle)',
@@ -662,9 +664,9 @@ export function SessionSidebar({
             >
               {user.avatar_emoji}
             </span>
-            <span className="truncate text-[14.5px] font-medium">{user.display_name}</span>
+            <span className="truncate text-[14px] font-medium leading-none">{user.display_name}</span>
           </span>
-          <MoreHorizontal size={16} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
+          <MoreHorizontal size={15} style={{ color: 'var(--text-muted)' }} className="shrink-0" />
         </button>
       </div>
     </aside>
@@ -694,7 +696,7 @@ export function SessionSidebar({
         aria-hidden={!openMobile}
       >
         <div
-          className="relative z-10 h-full safe-pt safe-pb transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          className="relative z-10 h-full safe-pt transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{
             background: 'var(--bg-sidebar)',
             transform: openMobile ? 'translateX(0)' : 'translateX(-100%)',

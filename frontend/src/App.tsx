@@ -41,9 +41,11 @@ function isRunningStandalone(): boolean {
   )
 }
 
-// Graceful Dot-style pacing so user bubble -> ✓✓ 已送达 -> Donut thinking arrive in calm steps
-const MIN_DELIVERY_BEAT_MS = 340
-const ASSISTANT_ARRIVE_DELAY_MS = 380
+// Dot-style unhurried pacing:
+// 0ms jelly user bubble ("发送中…") -> ~580ms "✓✓ 已送达" -> +520ms Donut arrives thinking -> +420ms reply streams
+const MIN_DELIVERY_BEAT_MS = 580
+const ASSISTANT_ARRIVE_DELAY_MS = 520
+const THINKING_BREATH_MS = 420
 
 export function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
@@ -340,8 +342,24 @@ export function App() {
 
     let deliveredShown = false
     let assistantInserted = false
+    let readyToFlush = false
+    let aborted = false
     let deliveryTimer: number | null = null
     let assistantTimer: number | null = null
+    let breathTimer: number | null = null
+
+    // Buffer early events so fast replies never short-circuit the calm 3-beat Dot cadence
+    let bufferedText = ''
+    let bufferedThinking = ''
+    let bufferedTools: Array<{ id: string; name: string; status: string }> = []
+    let bufferedDoneUsage: ChatMessage['usage'] | undefined
+    let bufferedDone = false
+    let bufferedError: string | null = null
+
+    let resolveChoreography!: () => void
+    const choreographyDone = new Promise<void>((res) => {
+      resolveChoreography = res
+    })
 
     const clearChoreographyTimers = () => {
       if (deliveryTimer !== null) {
@@ -351,6 +369,10 @@ export function App() {
       if (assistantTimer !== null) {
         window.clearTimeout(assistantTimer)
         assistantTimer = null
+      }
+      if (breathTimer !== null) {
+        window.clearTimeout(breathTimer)
+        breathTimer = null
       }
     }
 
@@ -363,10 +385,6 @@ export function App() {
     }
 
     const ensureAssistantBubble = (patch?: Partial<ChatMessage>) => {
-      if (assistantTimer !== null) {
-        window.clearTimeout(assistantTimer)
-        assistantTimer = null
-      }
       if (!assistantInserted) {
         assistantInserted = true
         const appearAt = Date.now()
@@ -394,10 +412,74 @@ export function App() {
       }
     }
 
-    // Fallback: if meta takes unusually long (>900ms), gently show Donut waiting so user knows we're alive
-    assistantTimer = window.setTimeout(() => {
+    const flushBufferedEvents = () => {
+      if (readyToFlush) return
+      readyToFlush = true
+      markUserDeliveredNow()
       ensureAssistantBubble()
-    }, 900)
+
+      const textToFlush = bufferedText
+      const thinkToFlush = bufferedThinking
+      const toolsToFlush = bufferedTools
+      const errToFlush = bufferedError
+      const doneToFlush = bufferedDone
+      const usageToFlush = bufferedDoneUsage
+      bufferedText = ''
+      bufferedThinking = ''
+      bufferedTools = []
+      bufferedError = null
+
+      if (textToFlush || thinkToFlush || toolsToFlush.length > 0 || errToFlush || doneToFlush) {
+        const runningTool = [...toolsToFlush].reverse().find((t) => t.status === 'running')
+        if (runningTool) {
+          setLiveState((prev) => ({
+            streaming: true,
+            startedAt: prev.startedAt || Date.now(),
+            activeToolName: runningTool.name,
+          }))
+        }
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== tempAsstId) return m
+            let nextContent = m.content + textToFlush
+            if (errToFlush) {
+              nextContent = nextContent ? `${nextContent}\n\n> ⚠️ ${errToFlush}` : `⚠️ ${errToFlush}`
+            }
+            return {
+              ...m,
+              content: nextContent,
+              thinking: (m.thinking || '') + thinkToFlush,
+              tools: toolsToFlush.length > 0 ? toolsToFlush : m.tools,
+              usage: doneToFlush ? usageToFlush : m.usage,
+              streaming: doneToFlush || Boolean(errToFlush) ? false : m.streaming,
+            }
+          }),
+        )
+      }
+      resolveChoreography()
+    }
+
+    const scheduleAssistantAfterDelivery = () => {
+      if (assistantTimer !== null || assistantInserted || aborted) return
+      assistantTimer = window.setTimeout(() => {
+        if (aborted) return
+        ensureAssistantBubble()
+        // Brief gentle breath while Donut shows "正在查看消息…" before fast replies pour out
+        breathTimer = window.setTimeout(() => {
+          if (aborted) return
+          flushBufferedEvents()
+        }, THINKING_BREATH_MS)
+      }, ASSISTANT_ARRIVE_DELAY_MS)
+    }
+
+    // Fallback: if meta takes unusually long (>1.2s), gently show Donut waiting
+    assistantTimer = window.setTimeout(() => {
+      if (aborted) return
+      ensureAssistantBubble()
+      breathTimer = window.setTimeout(() => {
+        if (!aborted) flushBufferedEvents()
+      }, THINKING_BREATH_MS)
+    }, 1200)
 
     try {
       await streamChat(
@@ -409,22 +491,23 @@ export function App() {
                 s.id === sid ? { ...s, title: ev.title, updated_at: Date.now() } : s,
               ),
             )
-            // Phase 2 (~340ms): Crossfade "发送中…" -> "✓✓ 已送达"
+            // Beat 2 (~580ms): Crossfade "发送中…" -> "✓✓ 已送达"
             const elapsed = Date.now() - sentAt
             const waitDelivery = Math.max(0, MIN_DELIVERY_BEAT_MS - elapsed)
             clearChoreographyTimers()
             deliveryTimer = window.setTimeout(() => {
+              if (aborted) return
               markUserDeliveredNow()
-              // Phase 3 (+380ms breath after delivery): Donut gently enters & starts thinking
-              assistantTimer = window.setTimeout(() => {
-                ensureAssistantBubble()
-              }, ASSISTANT_ARRIVE_DELAY_MS)
+              // Beat 3 (+520ms): Donut gently pops in thinking -> Beat 4 (+420ms): stream flushes
+              scheduleAssistantAfterDelivery()
             }, waitDelivery)
           } else if (ev.type === 'heartbeat') {
             // Keep-alive signal from backend
           } else if (ev.type === 'thinking') {
-            markUserDeliveredNow()
-            ensureAssistantBubble()
+            if (!readyToFlush) {
+              bufferedThinking += ev.delta
+              return
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId
@@ -433,8 +516,15 @@ export function App() {
               ),
             )
           } else if (ev.type === 'tool') {
-            markUserDeliveredNow()
-            ensureAssistantBubble()
+            if (!readyToFlush) {
+              const idx = bufferedTools.findIndex((t) => t.id === ev.id)
+              if (idx >= 0) {
+                bufferedTools[idx] = { id: ev.id, name: ev.name, status: ev.status }
+              } else {
+                bufferedTools.push({ id: ev.id, name: ev.name, status: ev.status })
+              }
+              return
+            }
             setLiveState((prev) => ({
               streaming: true,
               startedAt: prev.startedAt || Date.now(),
@@ -455,43 +545,56 @@ export function App() {
               }),
             )
           } else if (ev.type === 'delta') {
-            markUserDeliveredNow()
-            ensureAssistantBubble()
+            if (!readyToFlush) {
+              bufferedText += ev.text
+              return
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === tempAsstId ? { ...m, content: m.content + ev.text } : m,
               ),
             )
           } else if (ev.type === 'done') {
-            clearChoreographyTimers()
-            markUserDeliveredNow()
-            ensureAssistantBubble({ usage: ev.usage, streaming: false })
-          } else if (ev.type === 'error') {
-            clearChoreographyTimers()
-            markUserDeliveredNow()
-            if (!assistantInserted) {
-              ensureAssistantBubble({ content: `⚠️ ${ev.message}`, streaming: false })
-            } else {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === tempAsstId
-                    ? {
-                        ...m,
-                        content: m.content
-                          ? `${m.content}\n\n> ⚠️ ${ev.message}`
-                          : `⚠️ ${ev.message}`,
-                        streaming: false,
-                      }
-                    : m,
-                ),
-              )
+            if (!readyToFlush) {
+              bufferedDone = true
+              bufferedDoneUsage = ev.usage
+              return
             }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAsstId ? { ...m, usage: ev.usage, streaming: false } : m,
+              ),
+            )
+          } else if (ev.type === 'error') {
+            if (!readyToFlush) {
+              bufferedError = ev.message
+              return
+            }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempAsstId
+                  ? {
+                      ...m,
+                      content: m.content
+                        ? `${m.content}\n\n> ⚠️ ${ev.message}`
+                        : `⚠️ ${ev.message}`,
+                      streaming: false,
+                    }
+                  : m,
+              ),
+            )
           }
         },
         controller.signal,
       )
+      // If the response completed very fast, let the calm 3-beat choreography finish gracefully
+      if (!readyToFlush && !aborted) {
+        await choreographyDone
+      }
     } catch (err) {
+      aborted = true
       clearChoreographyTimers()
+      resolveChoreography()
       if ((err as Error).name !== 'AbortError') {
         const msg = err instanceof Error ? err.message : '连接中断'
         if (!deliveredShown) {
@@ -513,6 +616,9 @@ export function App() {
       }
     } finally {
       clearChoreographyTimers()
+      if (!aborted && !readyToFlush) {
+        flushBufferedEvents()
+      }
       if (assistantInserted) {
         setMessages((prev) =>
           prev.map((m) => (m.id === tempAsstId ? { ...m, streaming: false } : m)),
