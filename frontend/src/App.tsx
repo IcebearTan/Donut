@@ -20,8 +20,7 @@ import { CompanionPanel, type LiveStreamState } from './components/CompanionPane
 import { ProjectModal } from './components/ProjectModal'
 import { PwaInstallModal } from './components/PwaInstallModal'
 import { VaultView } from './components/VaultView'
-import { SkillsView } from './components/SkillsView'
-import { CronView } from './components/CronView'
+import { WorkbenchView } from './components/WorkbenchView'
 import { ProfileSettingsView, type SettingsSection } from './components/ProfileSettingsView'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -1085,9 +1084,8 @@ export function App() {
           setSettingsSection(sec)
           setActiveAppId('settings')
         }}
+        onOpenWorkbench={() => setActiveAppId('workbench')}
         onOpenVault={() => setActiveAppId('vault')}
-        onOpenSkills={() => setActiveAppId('skills')}
-        onOpenCron={() => setActiveAppId('cron')}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
@@ -1147,13 +1145,11 @@ export function App() {
                   </>
                 ) : (
                   <span className="text-[15px] font-semibold tracking-tight truncate">
-                    {activeAppId === 'vault'
-                      ? '我的文件仓'
-                      : activeAppId === 'skills'
-                        ? '技能库'
-                        : activeAppId === 'cron'
-                          ? '定时任务'
-                          : '个人主页与设置'}
+                    {activeAppId === 'workbench'
+                      ? '工作台'
+                      : activeAppId === 'vault'
+                        ? '我的文件仓'
+                        : '个人主页与设置'}
                   </span>
                 )}
               </div>
@@ -1255,16 +1251,15 @@ export function App() {
               </div>
             )}
           </div>
-        ) : activeAppId === 'vault' ? (
-          <VaultView user={user} onChanged={() => refreshStatus()} />
-        ) : activeAppId === 'skills' ? (
-          <SkillsView
+        ) : activeAppId === 'workbench' ? (
+          <WorkbenchView
             user={user}
-            onTeachInChat={() => handleSelectMainSession()}
+            onOpenVault={() => setActiveAppId('vault')}
+            onToast={showToast}
             onChanged={() => refreshStatus()}
           />
-        ) : activeAppId === 'cron' ? (
-          <CronView user={user} onChanged={() => refreshStatus()} />
+        ) : activeAppId === 'vault' ? (
+          <VaultView user={user} onChanged={() => refreshStatus()} />
         ) : activeAppId === 'settings' ? (
           <ProfileSettingsView
             user={user}
@@ -1278,7 +1273,8 @@ export function App() {
               showToast('个人与助手设定已更新')
             }}
             onNavigateVault={() => setActiveAppId('vault')}
-            onNavigateSkills={() => setActiveAppId('skills')}
+            onTeachInChat={() => handleSelectMainSession()}
+            onChanged={() => refreshStatus()}
             onInstallApp={() => setPwaModalOpen(true)}
             onLogout={handleLogout}
           />

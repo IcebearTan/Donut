@@ -5,13 +5,14 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Clock,
   Compass,
   CornerUpLeft,
   Download,
   FolderArchive,
   FolderInput,
   FolderPlus,
+  Layers,
+  LayoutGrid,
   Loader2,
   LogOut,
   Moon,
@@ -57,9 +58,8 @@ interface Props {
   onDeleteSession: (id: string) => Promise<void> | void
   onSetTheme: (theme: 'light' | 'dark') => void
   onOpenSettings: (section: SettingsSection) => void
+  onOpenWorkbench: () => void
   onOpenVault: () => void
-  onOpenSkills: () => void
-  onOpenCron: () => void
   showInstallApp?: boolean
   onInstallApp?: () => void
   onLogout: () => void
@@ -116,9 +116,8 @@ export function SessionSidebar({
   onDeleteSession,
   onSetTheme,
   onOpenSettings,
+  onOpenWorkbench,
   onOpenVault,
-  onOpenSkills,
-  onOpenCron,
   showInstallApp,
   onInstallApp,
   onLogout,
@@ -441,6 +440,23 @@ export function SessionSidebar({
 
         <button
           type="button"
+          data-testid="open-workbench-nav"
+          data-active={activeAppId === 'workbench' ? 'true' : 'false'}
+          onClick={() => {
+            onOpenWorkbench()
+            if (isMobile) onCloseMobile()
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
+          style={{
+            color: activeAppId === 'workbench' ? 'var(--text-primary)' : 'var(--text-secondary)',
+          }}
+        >
+          <LayoutGrid size={17} className="shrink-0 opacity-80" />
+          <span>工作台</span>
+        </button>
+
+        <button
+          type="button"
           data-testid="open-vault-nav"
           data-active={activeAppId === 'vault' ? 'true' : 'false'}
           onClick={() => {
@@ -452,36 +468,6 @@ export function SessionSidebar({
         >
           <FolderArchive size={17} className="shrink-0 opacity-80" />
           <span>文件仓</span>
-        </button>
-
-        <button
-          type="button"
-          data-testid="open-skills-nav"
-          data-active={activeAppId === 'skills' ? 'true' : 'false'}
-          onClick={() => {
-            onOpenSkills()
-            if (isMobile) onCloseMobile()
-          }}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
-          style={{ color: activeAppId === 'skills' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-        >
-          <Sparkles size={17} className="shrink-0 opacity-80" />
-          <span>技能库</span>
-        </button>
-
-        <button
-          type="button"
-          data-testid="open-cron-nav"
-          data-active={activeAppId === 'cron' ? 'true' : 'false'}
-          onClick={() => {
-            onOpenCron()
-            if (isMobile) onCloseMobile()
-          }}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
-          style={{ color: activeAppId === 'cron' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-        >
-          <Clock size={17} className="shrink-0 opacity-80" />
-          <span>定时任务</span>
         </button>
 
         {externalApps.map((app) => {
@@ -705,6 +691,21 @@ export function SessionSidebar({
             >
               <Sparkles size={15} className="shrink-0 opacity-75" />
               <span>助手定制与人设</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="menu-open-skills"
+              onClick={() => {
+                setMenuOpen(false)
+                onOpenSettings('skills')
+                if (isMobile) onCloseMobile()
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <Layers size={15} className="shrink-0 opacity-75" />
+              <span>助手技能库</span>
             </button>
 
             <div

@@ -6,6 +6,7 @@ import {
   Flame,
   FolderArchive,
   FolderKanban,
+  Layers,
   Loader2,
   LogOut,
   MessageSquare,
@@ -22,8 +23,9 @@ import {
   type PersonaPreset,
   type UserProfile,
 } from '../api/client'
+import { SkillsView } from './SkillsView'
 
-export type SettingsSection = 'overview' | 'assistant' | 'appearance' | 'account'
+export type SettingsSection = 'overview' | 'assistant' | 'skills' | 'appearance' | 'account'
 
 interface Props {
   user: UserProfile
@@ -33,7 +35,8 @@ interface Props {
   onSetTheme: (t: 'light' | 'dark') => void
   onUserUpdated: (user: UserProfile) => void
   onNavigateVault: () => void
-  onNavigateSkills: () => void
+  onTeachInChat: () => void
+  onChanged?: () => void
   onInstallApp?: () => void
   onLogout: () => void
 }
@@ -118,7 +121,8 @@ export function ProfileSettingsView({
   onSetTheme,
   onUserUpdated,
   onNavigateVault,
-  onNavigateSkills,
+  onTeachInChat,
+  onChanged,
   onInstallApp,
   onLogout,
 }: Props) {
@@ -277,6 +281,12 @@ export function ProfileSettingsView({
       label: '助手定制与人设',
       desc: '形象、性格模板、SOUL 与偏好',
       icon: <Sparkles size={16} />,
+    },
+    {
+      id: 'skills',
+      label: '技能库',
+      desc: '自进化技能与配套工具规则',
+      icon: <Layers size={16} />,
     },
     {
       id: 'appearance',
@@ -710,7 +720,7 @@ export function ProfileSettingsView({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button
                     type="button"
-                    onClick={onNavigateSkills}
+                    onClick={() => setSection('skills')}
                     className="p-4 rounded-2xl text-left flex items-center justify-between sidebar-row pressable cursor-pointer"
                     style={{
                       background: 'var(--bg-sidebar)',
@@ -973,6 +983,18 @@ export function ProfileSettingsView({
                   </div>
                 </div>
               </form>
+            )}
+
+            {/* ================= SECTION 2.5: SKILLS STUDIO ================= */}
+            {section === 'skills' && (
+              <div className="animate-msg-in">
+                <SkillsView
+                  embedded
+                  user={user}
+                  onTeachInChat={onTeachInChat}
+                  onChanged={onChanged}
+                />
+              </div>
             )}
 
             {/* ================= SECTION 3: APPEARANCE & PWA ================= */}
