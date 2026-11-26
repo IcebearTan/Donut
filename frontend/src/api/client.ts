@@ -149,48 +149,58 @@ export interface ReimbursementListResponse {
   }
 }
 
-export interface NotionScheduleConfig {
-  configured: boolean
-  has_token: boolean
-  masked_token: string
-  database_id: string
-  database_name: string
-}
+export type FocusUrgency = 'must' | 'soon' | 'plan'
+export type FocusTagColor = 'slate' | 'blue' | 'emerald' | 'amber' | 'rose' | 'violet'
 
-export interface NotionDatabaseCandidate {
+export interface FocusExternalLink {
   id: string
-  name: string
+  label: string
   url: string
-  property_names: string[]
 }
 
-export interface NotionScheduleItem {
+export interface FocusItem {
   id: string
   title: string
-  date_start: string
-  date_end: string
+  urgency: FocusUrgency
+  tag: string
+  tag_color: FocusTagColor
+  countdown: string
+  progress: string
+  source_url: string
   done: boolean
-  status: string
-  priority: string
-  tags: string[]
-  bucket: 'overdue' | 'today' | 'upcoming' | 'nodate' | 'done'
-  url: string
-  last_edited: string
+  created_at: number
+  updated_at: number
 }
 
-export interface NotionScheduleListResponse {
-  configured: boolean
-  database_name: string
-  database_url: string
-  can_toggle: boolean
-  items: NotionScheduleItem[]
+export interface FocusState {
+  updated_at: number
+  external_links: FocusExternalLink[]
+  items: FocusItem[]
   summary: {
-    overdue: number
-    today: number
-    upcoming: number
-    nodate: number
+    total: number
     done: number
+    remaining: number
+    must: number
+    soon: number
+    plan: number
   }
+}
+
+export interface WorkbenchModuleItem {
+  id: string
+  kind: 'core' | 'builtin' | 'template' | 'html'
+  template?: 'checklist' | 'table' | 'cards' | 'markdown' | null
+  name: string
+  description: string
+  icon: string
+  enabled: boolean
+  removable: boolean
+  order?: number
+}
+
+export interface WorkbenchModulesResponse {
+  core: WorkbenchModuleItem[]
+  modules: WorkbenchModuleItem[]
 }
 
 export interface VaultFileItem {
@@ -645,37 +655,66 @@ export const api = {
     if (!res.ok) throw new Error(`导出失败 (HTTP ${res.status})`)
     return res.blob()
   },
-  getScheduleConfig: () =>
-    request<NotionScheduleConfig>('/portal-api/workbench/schedule/config'),
-  discoverNotionDatabases: (token?: string) =>
-    request<{ databases: NotionDatabaseCandidate[] }>('/portal-api/workbench/schedule/discover', {
-      method: 'POST',
-      body: JSON.stringify({ token: token || null }),
+  getFocus: () => request<FocusState>('/portal-api/workbench/focus'),
+  replaceFocus: (payload: { items: Array<Partial<FocusItem> & { title: string }>; external_links?: FocusExternalLink[] }) =>
+    request<{ ok: boolean } & FocusState>('/portal-api/workbench/focus', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
-  saveScheduleConfig: (payload: { token?: string; database_id: string; database_name?: string }) =>
-    request<{ ok: boolean; config: NotionScheduleConfig }>('/portal-api/workbench/schedule/config', {
+  addFocusItem: (payload: {
+    title: string
+    urgency?: FocusUrgency
+    tag?: string
+    tag_color?: FocusTagColor
+    countdown?: string
+    progress?: string
+    source_url?: string
+  }) =>
+    request<{ ok: boolean; item: FocusItem; focus: FocusState }>('/portal-api/workbench/focus/items', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  clearScheduleConfig: () =>
-    request<{ ok: boolean }>('/portal-api/workbench/schedule/config', { method: 'DELETE' }),
-  listScheduleItems: (refresh = false) =>
-    request<NotionScheduleListResponse>(
-      `/portal-api/workbench/schedule/items${refresh ? '?refresh=1' : ''}`,
-    ),
-  createScheduleItem: (title: string, date_start?: string) =>
-    request<{ ok: boolean; item: NotionScheduleItem }>('/portal-api/workbench/schedule/items', {
-      method: 'POST',
-      body: JSON.stringify({ title, date_start: date_start || null }),
-    }),
-  toggleScheduleItem: (pageId: string, done: boolean) =>
-    request<{ ok: boolean; item: NotionScheduleItem }>(
-      `/portal-api/workbench/schedule/items/${encodeURIComponent(pageId)}`,
+  updateFocusItem: (
+    itemId: string,
+    payload: Partial<{
+      title: string
+      urgency: FocusUrgency
+      tag: string
+      tag_color: FocusTagColor
+      countdown: string
+      progress: string
+      source_url: string
+      done: boolean
+    }>,
+  ) =>
+    request<{ ok: boolean; item: FocusItem; focus: FocusState }>(
+      `/portal-api/workbench/focus/items/${encodeURIComponent(itemId)}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ done }),
+        body: JSON.stringify(payload),
       },
     ),
+  deleteFocusItem: (itemId: string) =>
+    request<{ ok: boolean; focus: FocusState }>(
+      `/portal-api/workbench/focus/items/${encodeURIComponent(itemId)}`,
+      { method: 'DELETE' },
+    ),
+  clearDoneFocus: () =>
+    request<{ ok: boolean; focus: FocusState }>('/portal-api/workbench/focus/clear-done', {
+      method: 'POST',
+    }),
+  updateFocusLinks: (external_links: Array<{ id?: string; label: string; url: string }>) =>
+    request<{ ok: boolean; focus: FocusState }>('/portal-api/workbench/focus/links', {
+      method: 'PUT',
+      body: JSON.stringify({ external_links }),
+    }),
+  listWorkbenchModules: () =>
+    request<WorkbenchModulesResponse>('/portal-api/workbench/modules'),
+  saveWorkbenchModules: (items: Array<{ id: string; enabled?: boolean }>) =>
+    request<WorkbenchModulesResponse>('/portal-api/workbench/modules', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
   getAnnualActivity: (year?: number) =>
     request<AnnualActivityResponse>(
       year ? `/portal-api/activity/year?year=${year}` : '/portal-api/activity/year',

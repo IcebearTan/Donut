@@ -1,11 +1,15 @@
-import { useState } from 'react'
-import { CalendarCheck2, Clock, ReceiptText } from 'lucide-react'
-import type { UserProfile } from '../api/client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Loader2, SlidersHorizontal } from 'lucide-react'
+import {
+  api,
+  type UserProfile,
+  type WorkbenchModuleItem,
+} from '../api/client'
 import { CronView } from './CronView'
-import { NotionScheduleTab } from './NotionScheduleTab'
 import { ReimbursementTab } from './ReimbursementTab'
-
-export type WorkbenchTab = 'reimbursements' | 'schedule' | 'cron'
+import { FocusTab } from './workbench/FocusTab'
+import { WorkbenchIcon } from './workbench/iconMap'
+import { ModuleManagerModal } from './workbench/ModuleManagerModal'
 
 interface Props {
   user: UserProfile
@@ -14,61 +18,126 @@ interface Props {
   onChanged?: () => void
 }
 
-function getInitialTab(): WorkbenchTab {
+function getInitialTab(userId: string): string {
   try {
-    const saved = sessionStorage.getItem('donut_workbench_tab')
-    if (saved === 'reimbursements' || saved === 'schedule' || saved === 'cron') return saved
+    const saved = sessionStorage.getItem(`donut_workbench_tab_${userId}`)
+    if (saved) return saved
   } catch {
     // ignore
   }
-  return 'reimbursements'
+  return 'focus'
 }
 
 export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) {
-  const [tab, setTab] = useState<WorkbenchTab>(getInitialTab)
+  const [tab, setTab] = useState<string>(() => getInitialTab(user.id))
+  const [coreModules, setCoreModules] = useState<WorkbenchModuleItem[]>([
+    {
+      id: 'focus',
+      kind: 'core',
+      name: '今日焦点',
+      description: '',
+      icon: 'focus',
+      enabled: true,
+      removable: false,
+    },
+    {
+      id: 'cron',
+      kind: 'core',
+      name: '定时任务',
+      description: '',
+      icon: 'clock',
+      enabled: true,
+      removable: false,
+    },
+  ])
+  const [extModules, setExtModules] = useState<WorkbenchModuleItem[]>([])
+  const [loadingMods, setLoadingMods] = useState(true)
+  const [savingMods, setSavingMods] = useState(false)
+  const [managerOpen, setManagerOpen] = useState(false)
 
-  function switchTab(next: WorkbenchTab) {
+  const loadModules = useCallback(async () => {
+    setLoadingMods(true)
+    try {
+      const res = await api.listWorkbenchModules()
+      setCoreModules(res.core)
+      setExtModules(res.modules)
+    } catch {
+      // keep safe core fallback
+    } finally {
+      setLoadingMods(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    setTab(getInitialTab(user.id))
+    loadModules()
+  }, [user.id, loadModules])
+
+  const enabledExtensions = useMemo(
+    () => extModules.filter((m) => m.enabled),
+    [extModules],
+  )
+
+  useEffect(() => {
+    if (loadingMods) return
+    const validIds = new Set(['focus', 'cron', ...enabledExtensions.map((m) => m.id)])
+    if (!validIds.has(tab)) {
+      setTab('focus')
+    }
+  }, [loadingMods, enabledExtensions, tab])
+
+  function switchTab(next: string) {
     setTab(next)
     try {
-      sessionStorage.setItem('donut_workbench_tab', next)
+      sessionStorage.setItem(`donut_workbench_tab_${user.id}`, next)
     } catch {
       // ignore
     }
   }
 
-  const tabs: Array<{ id: WorkbenchTab; label: string; icon: React.ReactNode }> = [
-    { id: 'reimbursements', label: '报销台账', icon: <ReceiptText size={15} /> },
-    { id: 'schedule', label: '日程速览', icon: <CalendarCheck2 size={15} /> },
-    { id: 'cron', label: '定时任务', icon: <Clock size={15} /> },
-  ]
+  async function handleSaveModules(items: Array<{ id: string; enabled: boolean }>) {
+    setSavingMods(true)
+    try {
+      const res = await api.saveWorkbenchModules(items)
+      setCoreModules(res.core)
+      setExtModules(res.modules)
+      onToast('工作台扩展布局已更新')
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : '保存扩展配置失败')
+    } finally {
+      setSavingMods(false)
+    }
+  }
+
+  const activeExtension = enabledExtensions.find((m) => m.id === tab) || null
 
   return (
     <div data-testid="workbench-page" className="chat-scroll flex-1 min-h-0 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-14 space-y-6">
-        {/* Header + Segmented Switcher */}
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        {/* Header + Dynamic Per-User Tab Strip */}
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
             <p className="text-[13.5px]" style={{ color: 'var(--text-muted)' }}>
-              本地报销台账与原件打包、Notion 日程直连速览与自动定时巡检
+              今日焦点、自动巡检与按需扩展的个人专属工作模块
             </p>
           </div>
 
           <div
-            className="inline-flex items-center p-1 rounded-2xl self-start sm:self-auto"
+            className="inline-flex flex-wrap items-center gap-1 p-1 rounded-2xl self-start lg:self-auto max-w-full"
             style={{
               background: 'var(--bg-sidebar)',
               border: '1px solid var(--border-subtle)',
             }}
           >
-            {tabs.map((t) => {
-              const active = tab === t.id
+            {coreModules.map((m) => {
+              const active = tab === m.id
               return (
                 <button
-                  key={t.id}
+                  key={m.id}
                   type="button"
-                  data-testid={`workbench-tab-${t.id}`}
-                  onClick={() => switchTab(t.id)}
+                  data-testid={`workbench-tab-${m.id}`}
+                  onClick={() => switchTab(m.id)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-all pressable cursor-pointer"
                   style={{
                     background: active ? 'var(--bg-surface)' : 'transparent',
@@ -76,20 +145,75 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
                     boxShadow: active ? 'var(--shadow-sm)' : 'none',
                   }}
                 >
-                  {t.icon}
-                  <span>{t.label}</span>
+                  <WorkbenchIcon name={m.icon} size={15} />
+                  <span>{m.name}</span>
                 </button>
               )
             })}
+
+            {enabledExtensions.length > 0 && (
+              <span
+                className="h-4 w-px mx-0.5 shrink-0"
+                style={{ background: 'var(--border-strong)' }}
+                aria-hidden="true"
+              />
+            )}
+
+            {enabledExtensions.map((m) => {
+              const active = tab === m.id
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  data-testid={`workbench-tab-${m.id}`}
+                  onClick={() => switchTab(m.id)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-all pressable cursor-pointer"
+                  style={{
+                    background: active ? 'var(--bg-surface)' : 'transparent',
+                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
+                  }}
+                >
+                  <WorkbenchIcon name={m.icon} size={15} />
+                  <span>{m.name}</span>
+                </button>
+              )
+            })}
+
+            <button
+              type="button"
+              data-testid="workbench-manage-modules-btn"
+              onClick={() => setManagerOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium sidebar-row pressable cursor-pointer"
+              style={{ color: 'var(--text-muted)' }}
+              title="管理工作台扩展"
+            >
+              {loadingMods ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <SlidersHorizontal size={14} />
+              )}
+              <span>管理扩展</span>
+            </button>
           </div>
         </div>
 
-        {tab === 'reimbursements' && (
+        {tab === 'focus' && <FocusTab onToast={onToast} />}
+        {tab === 'cron' && <CronView user={user} embedded onChanged={onChanged} />}
+        {tab === 'reimbursements' && activeExtension && (
           <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
         )}
-        {tab === 'schedule' && <NotionScheduleTab onToast={onToast} />}
-        {tab === 'cron' && <CronView user={user} embedded onChanged={onChanged} />}
       </div>
+
+      {managerOpen && (
+        <ModuleManagerModal
+          core={coreModules}
+          modules={extModules}
+          saving={savingMods}
+          onSaveModules={handleSaveModules}
+          onClose={() => setManagerOpen(false)}
+        />
+      )}
     </div>
   )
 }

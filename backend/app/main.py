@@ -58,25 +58,10 @@ from .cron_service import (
     run_user_cron_job,
     update_user_cron_job,
 )
-from .notion_schedule import (
-    clear_notion_schedule_config,
-    create_notion_schedule_item,
-    discover_notion_databases,
-    get_notion_schedule_config,
-    list_notion_schedule_items,
-    save_notion_schedule_config,
-    toggle_notion_schedule_item,
-)
-from .reimbursement import (
-    build_reimbursement_export_zip,
-    create_reimbursement,
-    delete_reimbursement,
-    list_reimbursements,
-    update_reimbursement,
-)
 from .runs import cancel_active_run, get_active_run, start_detached_run
 from .status import get_companion_status
 from .titler import generate_smart_title
+from .workbench_routes import router as workbench_router
 from .vault import (
     browse_user_vault,
     create_user_vault_folder,
@@ -106,6 +91,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Couple Space Portal", lifespan=lifespan)
+app.include_router(workbench_router)
 
 
 # ---------------------------------------------------------------------------
@@ -1336,169 +1322,6 @@ async def api_get_cron_runs(
 ) -> dict:
     runs = await get_user_cron_runs(user["id"], job_id, limit=limit)
     return {"runs": runs}
-
-
-# ---------------------------------------------------------------------------
-# Workbench: Local Reimbursement Ledger + Direct Notion Schedule API
-# ---------------------------------------------------------------------------
-
-
-class ReimbursementPayload(BaseModel):
-    spend_date: str = Field(default="", max_length=32)
-    title: str = Field(..., min_length=1, max_length=160)
-    platform: str = Field(default="", max_length=64)
-    amount: float = 0.0
-    has_invoice: str = Field(default="有", max_length=32)
-    has_order: str = Field(default="有", max_length=32)
-    has_payment: str = Field(default="有", max_length=32)
-    material_status: str = Field(default="齐全", max_length=32)
-    claim_status: str = Field(default="已整理-未报销", max_length=32)
-    note: str = Field(default="", max_length=500)
-    attachment_path: str = Field(default="", max_length=400)
-
-
-class ReimbursementPatchPayload(BaseModel):
-    expected_fingerprint: Optional[str] = None
-    spend_date: Optional[str] = Field(default=None, max_length=32)
-    title: Optional[str] = Field(default=None, max_length=160)
-    platform: Optional[str] = Field(default=None, max_length=64)
-    amount: Optional[float] = None
-    has_invoice: Optional[str] = Field(default=None, max_length=32)
-    has_order: Optional[str] = Field(default=None, max_length=32)
-    has_payment: Optional[str] = Field(default=None, max_length=32)
-    material_status: Optional[str] = Field(default=None, max_length=32)
-    claim_status: Optional[str] = Field(default=None, max_length=32)
-    note: Optional[str] = Field(default=None, max_length=500)
-    attachment_path: Optional[str] = Field(default=None, max_length=400)
-
-
-class ReimbursementExportRequest(BaseModel):
-    row_indices: list[int] = Field(default_factory=list)
-
-
-@app.get("/portal-api/workbench/reimbursements")
-def api_list_reimbursements(user: dict = Depends(get_current_user)) -> dict:
-    return list_reimbursements(user["id"])
-
-
-@app.post("/portal-api/workbench/reimbursements")
-def api_create_reimbursement(
-    body: ReimbursementPayload, user: dict = Depends(get_current_user)
-) -> dict:
-    item = create_reimbursement(user["id"], body.model_dump())
-    return {"ok": True, "item": item}
-
-
-@app.patch("/portal-api/workbench/reimbursements/{row_index}")
-def api_update_reimbursement(
-    row_index: int,
-    body: ReimbursementPatchPayload,
-    user: dict = Depends(get_current_user),
-) -> dict:
-    item = update_reimbursement(
-        user["id"], row_index, body.model_dump(exclude_unset=True)
-    )
-    return {"ok": True, "item": item}
-
-
-@app.delete("/portal-api/workbench/reimbursements/{row_index}")
-def api_delete_reimbursement(
-    row_index: int,
-    fp: Optional[str] = None,
-    user: dict = Depends(get_current_user),
-) -> dict:
-    return delete_reimbursement(user["id"], row_index, expected_fingerprint=fp)
-
-
-@app.post("/portal-api/workbench/reimbursements/export-zip")
-def api_export_reimbursements_zip(
-    body: ReimbursementExportRequest, user: dict = Depends(get_current_user)
-) -> Response:
-    raw_zip = build_reimbursement_export_zip(
-        user["id"], body.row_indices if body.row_indices else None
-    )
-    return Response(
-        content=raw_zip,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="reimbursement_bundle.zip"'
-        },
-    )
-
-
-class NotionDiscoverRequest(BaseModel):
-    token: Optional[str] = None
-
-
-class NotionConfigSaveRequest(BaseModel):
-    token: Optional[str] = None
-    database_id: str = Field(..., min_length=1, max_length=120)
-    database_name: str = Field(default="", max_length=160)
-
-
-class NotionScheduleToggleRequest(BaseModel):
-    done: bool
-
-
-class NotionScheduleCreateRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=240)
-    date_start: Optional[str] = Field(default=None, max_length=40)
-
-
-@app.get("/portal-api/workbench/schedule/config")
-def api_get_schedule_config(user: dict = Depends(get_current_user)) -> dict:
-    return get_notion_schedule_config(user["id"])
-
-
-@app.post("/portal-api/workbench/schedule/discover")
-async def api_discover_schedule_dbs(
-    body: NotionDiscoverRequest, user: dict = Depends(get_current_user)
-) -> dict:
-    dbs = await discover_notion_databases(user["id"], token_override=body.token)
-    return {"databases": dbs}
-
-
-@app.post("/portal-api/workbench/schedule/config")
-async def api_save_schedule_config(
-    body: NotionConfigSaveRequest, user: dict = Depends(get_current_user)
-) -> dict:
-    cfg = await save_notion_schedule_config(
-        user_id=user["id"],
-        token=body.token,
-        database_id=body.database_id,
-        database_name=body.database_name,
-    )
-    return {"ok": True, "config": cfg}
-
-
-@app.delete("/portal-api/workbench/schedule/config")
-def api_clear_schedule_config(user: dict = Depends(get_current_user)) -> dict:
-    return clear_notion_schedule_config(user["id"])
-
-
-@app.get("/portal-api/workbench/schedule/items")
-async def api_list_schedule_items(
-    refresh: int = 0, user: dict = Depends(get_current_user)
-) -> dict:
-    return await list_notion_schedule_items(user["id"], force_refresh=bool(refresh))
-
-
-@app.post("/portal-api/workbench/schedule/items")
-async def api_create_schedule_item(
-    body: NotionScheduleCreateRequest, user: dict = Depends(get_current_user)
-) -> dict:
-    return await create_notion_schedule_item(
-        user["id"], title=body.title, date_start=body.date_start
-    )
-
-
-@app.patch("/portal-api/workbench/schedule/items/{page_id}")
-async def api_toggle_schedule_item(
-    page_id: str,
-    body: NotionScheduleToggleRequest,
-    user: dict = Depends(get_current_user),
-) -> dict:
-    return await toggle_notion_schedule_item(user["id"], page_id, done=body.done)
 
 
 @app.get("/portal-api/status")
