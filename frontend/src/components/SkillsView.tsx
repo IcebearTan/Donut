@@ -27,6 +27,7 @@ import {
 
 interface Props {
   user: UserProfile
+  embedded?: boolean
   onTeachInChat: () => void
   onChanged?: () => void
 }
@@ -55,7 +56,7 @@ description: 一句话说明何时触发该技能以及它能帮你完成什么�
 - 如有产出文件，保存到 \`vault/artifacts/\` 并提供下载链接。
 `
 
-export function SkillsView({ user, onTeachInChat, onChanged }: Props) {
+export function SkillsView({ user, embedded = false, onTeachInChat, onChanged }: Props) {
   const [skills, setSkills] = useState<SkillItem[]>([])
   const [tools, setTools] = useState<ToolScriptItem[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -209,13 +210,26 @@ export function SkillsView({ user, onTeachInChat, onChanged }: Props) {
   const isDirty = detail ? draftContent !== detail.content : false
 
   return (
-    <div data-testid="skills-page" className="chat-scroll flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-12 space-y-6">
+    <div
+      data-testid="skills-page"
+      className={embedded ? 'space-y-5' : 'chat-scroll flex-1 min-h-0 overflow-y-auto'}
+    >
+      <div
+        className={
+          embedded
+            ? 'space-y-5'
+            : 'max-w-6xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-12 space-y-6'
+        }
+      >
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl font-semibold tracking-tight">技能库</h1>
+              {embedded ? (
+                <h2 className="text-[17px] font-semibold tracking-tight">技能库</h2>
+              ) : (
+                <h1 className="text-2xl font-semibold tracking-tight">技能库</h1>
+              )}
               <span
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
                 style={{
@@ -227,8 +241,8 @@ export function SkillsView({ user, onTeachInChat, onChanged }: Props) {
                 <span>已掌握 {skills.length} 项专属技能</span>
               </span>
             </div>
-            <p className="text-[13.5px]" style={{ color: 'var(--text-muted)' }}>
-              {assistantName} 在日常协作中为你沉淀的自进化技能（`skills/*/SKILL.md`），支持在线查阅、微调规则或新建专属工作流
+            <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
+              {assistantName} 在日常协作中为你沉淀的自进化技能（skills/*/SKILL.md），支持在线查阅、微调规则或新建专属工作流
             </p>
           </div>
 
@@ -237,26 +251,26 @@ export function SkillsView({ user, onTeachInChat, onChanged }: Props) {
               type="button"
               onClick={() => loadSkills(selectedId)}
               title="刷新技能列表"
-              className="w-10 h-10 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
+              className="w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
               style={{
                 background: 'var(--bg-surface)',
                 border: '1px solid var(--border-subtle)',
                 color: 'var(--text-secondary)',
               }}
             >
-              <RefreshCw size={15} className={loadingList ? 'animate-spin' : ''} />
+              <RefreshCw size={14} className={loadingList ? 'animate-spin' : ''} />
             </button>
             <button
               type="button"
               onClick={onTeachInChat}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-medium sidebar-row pressable cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium sidebar-row pressable cursor-pointer"
               style={{
                 background: 'var(--bg-surface)',
                 border: '1px solid var(--border-subtle)',
                 color: 'var(--text-primary)',
               }}
             >
-              <MessageSquarePlus size={15} />
+              <MessageSquarePlus size={14} />
               <span>对话教新技能</span>
             </button>
             <button
@@ -266,14 +280,14 @@ export function SkillsView({ user, onTeachInChat, onChanged }: Props) {
                 setCreating((v) => !v)
                 setError('')
               }}
-              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-medium pressable cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium pressable cursor-pointer"
               style={{
                 background: 'var(--accent)',
                 color: 'var(--accent-contrast)',
                 boxShadow: 'var(--shadow-sm)',
               }}
             >
-              <Plus size={15} />
+              <Plus size={14} />
               <span>新建技能</span>
             </button>
           </div>

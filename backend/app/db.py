@@ -90,6 +90,16 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
                 ON chat_messages(session_id, created_at ASC);
+
+            CREATE TABLE IF NOT EXISTS user_integrations (
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                secret_token TEXT NOT NULL DEFAULT '',
+                config_json TEXT NOT NULL DEFAULT '{}',
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, provider),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
             """
         )
         # Idempotent schema migrations for existing SQLite databases

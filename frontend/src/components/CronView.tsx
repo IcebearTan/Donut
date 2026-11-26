@@ -27,6 +27,7 @@ import {
 
 interface Props {
   user: UserProfile
+  embedded?: boolean
   onChanged?: () => void
 }
 
@@ -127,7 +128,7 @@ function toLocalInputValue(iso?: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-export function CronView({ user, onChanged }: Props) {
+export function CronView({ user, embedded = false, onChanged }: Props) {
   const [scheduler, setScheduler] = useState<CronSchedulerStatus | null>(null)
   const [jobs, setJobs] = useState<CronJobItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -563,13 +564,22 @@ export function CronView({ user, onChanged }: Props) {
   }
 
   return (
-    <div data-testid="cron-page" className="chat-scroll flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-12 space-y-6">
+    <div
+      data-testid="cron-page"
+      className={embedded ? 'space-y-5' : 'chat-scroll flex-1 min-h-0 overflow-y-auto'}
+    >
+      <div
+        className={
+          embedded
+            ? 'space-y-5'
+            : 'max-w-5xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-12 space-y-6'
+        }
+      >
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>
+              {!embedded && <h1 className="text-2xl font-semibold tracking-tight">定时任务</h1>}
               <span
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
                 style={{
@@ -588,7 +598,7 @@ export function CronView({ user, onChanged }: Props) {
                 </span>
               </span>
             </div>
-            <p className="text-[13.5px]" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-[13px]" style={{ color: 'var(--text-muted)' }}>
               让 {assistantName} 按计划自动巡检、汇总日报、提醒事项或整理长期记忆（与你的聊天对话实时同步）
             </p>
           </div>

@@ -101,6 +101,98 @@ export interface CronRunEntry {
   next_run_at?: number | null
 }
 
+export interface ReimbursementAttachment {
+  path: string
+  name: string
+  url: string
+  ext: string
+}
+
+export interface ReimbursementItem {
+  row_index: number
+  fingerprint: string
+  spend_date: string
+  month: string
+  title: string
+  platform: string
+  amount: number
+  has_invoice: string
+  has_order: string
+  has_payment: string
+  material_status: string
+  claim_status: string
+  note: string
+  attachment_path: string
+  attachments: ReimbursementAttachment[]
+}
+
+export interface ReimbursementListResponse {
+  ledger_path: string
+  items: ReimbursementItem[]
+  summary: {
+    total_count: number
+    active_total: number
+    pending_submit_total: number
+    pending_submit_count: number
+    in_flight_total: number
+    in_flight_count: number
+    settled_total: number
+    settled_count: number
+    cancelled_count: number
+  }
+  facets: {
+    months: string[]
+    platforms: string[]
+    claim_statuses: string[]
+    material_statuses: string[]
+    doc_checks: string[]
+  }
+}
+
+export interface NotionScheduleConfig {
+  configured: boolean
+  has_token: boolean
+  masked_token: string
+  database_id: string
+  database_name: string
+}
+
+export interface NotionDatabaseCandidate {
+  id: string
+  name: string
+  url: string
+  property_names: string[]
+}
+
+export interface NotionScheduleItem {
+  id: string
+  title: string
+  date_start: string
+  date_end: string
+  done: boolean
+  status: string
+  priority: string
+  tags: string[]
+  bucket: 'overdue' | 'today' | 'upcoming' | 'nodate' | 'done'
+  url: string
+  last_edited: string
+}
+
+export interface NotionScheduleListResponse {
+  configured: boolean
+  database_name: string
+  database_url: string
+  can_toggle: boolean
+  items: NotionScheduleItem[]
+  summary: {
+    overdue: number
+    today: number
+    upcoming: number
+    nodate: number
+    done: number
+  }
+}
+
 export interface VaultFileItem {
   scope: 'inbox' | 'artifacts' | 'archive'
   path: string
@@ -492,6 +584,97 @@ export const api = {
   getCronRuns: (id: string, limit = 20) =>
     request<{ runs: CronRunEntry[] }>(
       `/portal-api/cron/jobs/${encodeURIComponent(id)}/runs?limit=${limit}`,
+    ),
+  listReimbursements: () =>
+    request<ReimbursementListResponse>('/portal-api/workbench/reimbursements'),
+  createReimbursement: (payload: {
+    spend_date: string
+    title: string
+    platform: string
+    amount: number
+    has_invoice: string
+    has_order: string
+    has_payment: string
+    material_status: string
+    claim_status: string
+    note: string
+    attachment_path?: string
+  }) =>
+    request<{ ok: boolean; item: ReimbursementItem }>('/portal-api/workbench/reimbursements', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateReimbursement: (
+    rowIndex: number,
+    payload: Partial<{
+      expected_fingerprint: string
+      spend_date: string
+      title: string
+      platform: string
+      amount: number
+      has_invoice: string
+      has_order: string
+      has_payment: string
+      material_status: string
+      claim_status: string
+      note: string
+      attachment_path: string
+    }>,
+  ) =>
+    request<{ ok: boolean; item: ReimbursementItem }>(
+      `/portal-api/workbench/reimbursements/${rowIndex}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    ),
+  deleteReimbursement: (rowIndex: number, fingerprint?: string) =>
+    request<{ ok: boolean }>(
+      `/portal-api/workbench/reimbursements/${rowIndex}${
+        fingerprint ? `?fp=${encodeURIComponent(fingerprint)}` : ''
+      }`,
+      { method: 'DELETE' },
+    ),
+  exportReimbursementsZip: async (rowIndices: number[]) => {
+    const res = await fetch('/portal-api/workbench/reimbursements/export-zip', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ row_indices: rowIndices }),
+    })
+    if (!res.ok) throw new Error(`导出失败 (HTTP ${res.status})`)
+    return res.blob()
+  },
+  getScheduleConfig: () =>
+    request<NotionScheduleConfig>('/portal-api/workbench/schedule/config'),
+  discoverNotionDatabases: (token?: string) =>
+    request<{ databases: NotionDatabaseCandidate[] }>('/portal-api/workbench/schedule/discover', {
+      method: 'POST',
+      body: JSON.stringify({ token: token || null }),
+    }),
+  saveScheduleConfig: (payload: { token?: string; database_id: string; database_name?: string }) =>
+    request<{ ok: boolean; config: NotionScheduleConfig }>('/portal-api/workbench/schedule/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  clearScheduleConfig: () =>
+    request<{ ok: boolean }>('/portal-api/workbench/schedule/config', { method: 'DELETE' }),
+  listScheduleItems: (refresh = false) =>
+    request<NotionScheduleListResponse>(
+      `/portal-api/workbench/schedule/items${refresh ? '?refresh=1' : ''}`,
+    ),
+  createScheduleItem: (title: string, date_start?: string) =>
+    request<{ ok: boolean; item: NotionScheduleItem }>('/portal-api/workbench/schedule/items', {
+      method: 'POST',
+      body: JSON.stringify({ title, date_start: date_start || null }),
+    }),
+  toggleScheduleItem: (pageId: string, done: boolean) =>
+    request<{ ok: boolean; item: NotionScheduleItem }>(
+      `/portal-api/workbench/schedule/items/${encodeURIComponent(pageId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ done }),
+      },
     ),
   getAnnualActivity: (year?: number) =>
     request<AnnualActivityResponse>(
