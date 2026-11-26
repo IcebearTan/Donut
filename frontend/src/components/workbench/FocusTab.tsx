@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { api, type FocusItem, type FocusState, type FocusUrgency } from '../../api/client'
+import { api, type FocusItem, type FocusState } from '../../api/client'
 import { FocusHeaderCard } from './FocusHeaderCard'
 import { FocusItemModal } from './FocusItemModal'
 import { FocusLinksModal } from './FocusLinksModal'
-import { FocusQuickAddBar } from './FocusQuickAddBar'
 import { FocusRow } from './FocusRow'
 
 interface Props {
@@ -76,17 +75,6 @@ export function FocusTab({ onToast }: Props) {
     }
   }
 
-  async function handleQuickAdd(payload: { title: string; urgency: FocusUrgency; tag: string }) {
-    setErr('')
-    try {
-      const res = await api.addFocusItem(payload)
-      setData(res.focus)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : '添加失败')
-      throw e
-    }
-  }
-
   const items = data?.items || []
   const activeItems = items.filter((x) => !x.done)
   const doneItems = items.filter((x) => x.done)
@@ -104,10 +92,6 @@ export function FocusTab({ onToast }: Props) {
         onToggleShowDone={() => setShowDone((v) => !v)}
         onOpenLinks={() => setLinksModalOpen(true)}
         onRefresh={load}
-        onNewDetail={() => {
-          setEditingItem(null)
-          setEditorOpen(true)
-        }}
       />
 
       {err && (
@@ -139,7 +123,7 @@ export function FocusTab({ onToast }: Props) {
               {doneItems.length > 0 ? '今天的焦点事项已全部完成' : '暂无今日焦点事项'}
             </div>
             <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              在下方输入一行快速添加，或在对话里让 Donut 帮你同步今日焦点
+              在对话里让 Donut 帮你同步今日焦点，或配置定时任务每日自动刷新
             </div>
           </div>
         ) : (
@@ -196,8 +180,6 @@ export function FocusTab({ onToast }: Props) {
             )}
           </div>
         )}
-
-        <FocusQuickAddBar hasItemsAbove={hasVisibleRows} onAdd={handleQuickAdd} />
       </div>
 
       {editorOpen && (

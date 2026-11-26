@@ -72,7 +72,11 @@ export function FocusRow({
           )}
         </div>
         {item.progress && (
-          <div className="text-[12.5px] leading-snug truncate" style={{ color: 'var(--text-muted)' }}>
+          <div
+            title={item.progress}
+            className="text-[12.5px] leading-relaxed line-clamp-2"
+            style={{ color: 'var(--text-muted)' }}
+          >
             {item.progress}
           </div>
         )}

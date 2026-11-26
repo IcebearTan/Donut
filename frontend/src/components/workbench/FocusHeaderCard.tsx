@@ -1,4 +1,4 @@
-import { ExternalLink, Eye, EyeOff, Link2, Plus, RefreshCw } from 'lucide-react'
+import { ExternalLink, Eye, EyeOff, Link2, RefreshCw } from 'lucide-react'
 import type { FocusExternalLink, FocusState } from '../../api/client'
 import { URGENCY_META } from './focusMeta'
 
@@ -17,7 +17,6 @@ export function FocusHeaderCard({
   onToggleShowDone,
   onOpenLinks,
   onRefresh,
-  onNewDetail,
 }: {
   summary: FocusState['summary']
   externalLinks: FocusExternalLink[]
@@ -27,7 +26,6 @@ export function FocusHeaderCard({
   onToggleShowDone: () => void
   onOpenLinks: () => void
   onRefresh: () => void
-  onNewDetail: () => void
 }) {
   const pct = summary.total > 0 ? Math.round((summary.done / summary.total) * 100) : 0
 
@@ -141,17 +139,6 @@ export function FocusHeaderCard({
             }}
           >
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </button>
-
-          <button
-            type="button"
-            data-testid="focus-new-detail-btn"
-            onClick={onNewDetail}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium pressable cursor-pointer"
-            style={{ background: 'var(--accent)', color: 'var(--accent-contrast)' }}
-          >
-            <Plus size={13} />
-            <span>详细添加</span>
           </button>
         </div>
       </div>
