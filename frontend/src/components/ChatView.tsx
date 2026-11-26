@@ -11,6 +11,9 @@ import {
   Clock,
   Copy,
   Download,
+  FileArchive,
+  FileCode,
+  FileSpreadsheet,
   FileText,
   History,
   Loader2,
@@ -46,6 +49,102 @@ const INITIAL_VISIBLE_MESSAGES = 30
 const LOAD_MORE_STEP = 30
 const BUBBLE_SPLIT_RE = /\s*<!--\s*donut-bubble\s*-->\s*/g
 const REMARK_PLUGINS = [remarkGfm]
+const ATTACHMENT_TOKEN_RE = /📎\s*(?:`([^`\n]+)`|"([^"\n]+)"|“([^”\n]+)”)/g
+
+interface DraftEntry {
+  text: string
+  pendingFiles: UploadedAttachment[]
+}
+
+const DRAFT_STORAGE_KEY = 'portal_chat_drafts_v1'
+const draftMemoryMap = new Map<string, DraftEntry>()
+let draftsHydrated = false
+
+function hydrateDraftsFromStorage() {
+  if (draftsHydrated) return
+  draftsHydrated = true
+  try {
+    const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Record<string, DraftEntry>
+    if (parsed && typeof parsed === 'object') {
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v && typeof v === 'object') {
+          draftMemoryMap.set(k, {
+            text: typeof v.text === 'string' ? v.text : '',
+            pendingFiles: Array.isArray(v.pendingFiles) ? v.pendingFiles : [],
+          })
+        }
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function loadDraft(key: string): DraftEntry {
+  hydrateDraftsFromStorage()
+  const hit = draftMemoryMap.get(key)
+  if (hit) return hit
+  return { text: '', pendingFiles: [] }
+}
+
+function saveDraft(key: string, entry: DraftEntry) {
+  hydrateDraftsFromStorage()
+  if (!entry.text && entry.pendingFiles.length === 0) {
+    draftMemoryMap.delete(key)
+  } else {
+    draftMemoryMap.set(key, entry)
+  }
+  try {
+    const obj: Record<string, DraftEntry> = {}
+    for (const [k, v] of draftMemoryMap.entries()) {
+      obj[k] = v
+    }
+    sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(obj))
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function parseUserAttachments(content: string): { cleanText: string; files: string[] } {
+  if (!content || !content.includes('📎')) {
+    return { cleanText: content, files: [] }
+  }
+  const files: string[] = []
+  const seen = new Set<string>()
+  let match: RegExpExecArray | null
+  ATTACHMENT_TOKEN_RE.lastIndex = 0
+  while ((match = ATTACHMENT_TOKEN_RE.exec(content)) !== null) {
+    const name = (match[1] || match[2] || match[3] || '').trim()
+    if (name && !seen.has(name)) {
+      seen.add(name)
+      files.push(name)
+    }
+  }
+  if (files.length === 0) return { cleanText: content, files: [] }
+  const cleanText = content
+    .replace(ATTACHMENT_TOKEN_RE, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { cleanText, files }
+}
+
+function getFileExt(name: string): string {
+  const idx = name.lastIndexOf('.')
+  if (idx <= 0 || idx === name.length - 1) return ''
+  return name.slice(idx + 1).toLowerCase()
+}
+
+function AttachmentIcon({ ext }: { ext: string }) {
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return <FileSpreadsheet size={15} className="shrink-0" />
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return <FileArchive size={15} className="shrink-0" />
+  if (['py', 'js', 'ts', 'tsx', 'json', 'md', 'html', 'css', 'sh', 'yaml', 'yml'].includes(ext)) {
+    return <FileCode size={15} className="shrink-0" />
+  }
+  return <FileText size={15} className="shrink-0" />
+}
 
 function isSameDay(a: Date, b: Date): boolean {
   return (
@@ -554,12 +653,13 @@ const UserBubble = memo(function UserBubble({
 }) {
   const status = msg.deliveryStatus || 'delivered'
   const isFresh = msg.deliveryStatus !== undefined
+  const { cleanText, files } = useMemo(() => parseUserAttachments(msg.content || ''), [msg.content])
 
   return (
     <div
       className={`flex justify-end max-w-3xl w-full mx-auto ${isFresh ? 'animate-user-send' : ''}`}
     >
-      <div className="max-w-[86%] sm:max-w-[75%] flex flex-col items-end gap-1">
+      <div className="max-w-[86%] sm:max-w-[75%] flex flex-col items-end gap-1.5">
         {msg.images && msg.images.length > 0 && (
           <div className="flex flex-wrap justify-end gap-2">
             {msg.images.map((url, idx) => (
@@ -574,7 +674,7 @@ const UserBubble = memo(function UserBubble({
             ))}
           </div>
         )}
-        {msg.content && (
+        {cleanText && (
           <div
             data-testid="user-bubble"
             className="px-4 py-2.5 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed whitespace-pre-wrap break-word"
@@ -584,7 +684,56 @@ const UserBubble = memo(function UserBubble({
               boxShadow: 'var(--shadow-user-bubble)',
             }}
           >
-            {msg.content}
+            {cleanText}
+          </div>
+        )}
+        {files.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5 max-w-full">
+            {files.map((fileName) => {
+              const ext = getFileExt(fileName)
+              return (
+                <a
+                  key={fileName}
+                  href={`/portal-api/vault/download/inbox/${encodeURIComponent(fileName)}`}
+                  download={fileName}
+                  data-testid="user-attachment-chip"
+                  title={`点击下载 ${fileName}`}
+                  className="group inline-flex items-center gap-2 pl-2.5 pr-3 py-1.5 rounded-2xl text-[12.5px] no-underline sidebar-row pressable max-w-[260px] sm:max-w-[300px]"
+                  style={{
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border-subtle)',
+                    boxShadow: 'var(--shadow-sm)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  <span
+                    className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <AttachmentIcon ext={ext} />
+                  </span>
+                  <span className="min-w-0 flex flex-col leading-tight">
+                    <span className="truncate font-medium text-[12.5px]">{fileName}</span>
+                    {ext && (
+                      <span
+                        className="text-[10px] uppercase tracking-wide mt-0.5"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        {ext} 文件
+                      </span>
+                    )}
+                  </span>
+                  <Download
+                    size={12}
+                    className="shrink-0 opacity-45 group-hover:opacity-90 transition-opacity ml-0.5"
+                    style={{ color: 'var(--text-muted)' }}
+                  />
+                </a>
+              )
+            })}
           </div>
         )}
         {showReceipt && (
@@ -616,23 +765,58 @@ const UserBubble = memo(function UserBubble({
 })
 
 const ChatComposer = memo(function ChatComposer({
+  sessionKey,
   assistantName,
   activeProjectName,
   streaming,
   onSubmit,
   onStop,
 }: {
+  sessionKey: string
   assistantName: string
   activeProjectName?: string
   streaming: boolean
   onSubmit: (text: string, files: UploadedAttachment[]) => void
   onStop: () => void
 }) {
-  const [input, setInput] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<UploadedAttachment[]>([])
+  const [input, setInput] = useState(() => loadDraft(sessionKey).text)
+  const [pendingFiles, setPendingFiles] = useState<UploadedAttachment[]>(
+    () => loadDraft(sessionKey).pendingFiles,
+  )
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isComposingRef = useRef(false)
+  const lastCompositionEndRef = useRef(0)
+  const currentKeyRef = useRef(sessionKey)
+  const latestInputRef = useRef(input)
+  const latestFilesRef = useRef(pendingFiles)
+  latestInputRef.current = input
+  latestFilesRef.current = pendingFiles
+
+  // Restore saved draft when switching between chat sessions (without leaking previous session's text)
+  useEffect(() => {
+    if (currentKeyRef.current === sessionKey) return
+    currentKeyRef.current = sessionKey
+    const saved = loadDraft(sessionKey)
+    setInput(saved.text)
+    setPendingFiles(saved.pendingFiles)
+  }, [sessionKey])
+
+  function updateInput(nextText: string) {
+    setInput(nextText)
+    saveDraft(currentKeyRef.current, { text: nextText, pendingFiles: latestFilesRef.current })
+  }
+
+  function updatePendingFiles(
+    updater: (prev: UploadedAttachment[]) => UploadedAttachment[],
+  ) {
+    setPendingFiles((prev) => {
+      const next = updater(prev)
+      saveDraft(currentKeyRef.current, { text: latestInputRef.current, pendingFiles: next })
+      return next
+    })
+  }
 
   // Auto-grow textarea height smoothly WITHOUT showing a scrollbar on single/short lines
   useEffect(() => {
@@ -651,11 +835,12 @@ const ChatComposer = memo(function ChatComposer({
     setUploading(true)
     try {
       const added: UploadedAttachment[] = []
-      for (const file of list.slice(0, 10 - pendingFiles.length)) {
+      const remaining = Math.max(0, 10 - latestFilesRef.current.length)
+      for (const file of list.slice(0, remaining)) {
         const res = await api.uploadVaultFile(file)
         added.push(res)
       }
-      setPendingFiles((prev) => [...prev, ...added].slice(0, 10))
+      updatePendingFiles((prev) => [...prev, ...added].slice(0, 10))
     } catch (e) {
       alert(e instanceof Error ? e.message : '文件上传失败')
     } finally {
@@ -671,13 +856,25 @@ const ChatComposer = memo(function ChatComposer({
     onSubmit(text, pendingFiles)
     setInput('')
     setPendingFiles([])
+    saveDraft(currentKeyRef.current, { text: '', pendingFiles: [] })
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      submit()
+    if (e.key !== 'Enter' || e.shiftKey) return
+    const native = e.nativeEvent as KeyboardEvent
+    // Guard against macOS Chinese IME committing Latin text with Enter (Safari fires compositionend right before keydown)
+    const recentlyComposed = Date.now() - lastCompositionEndRef.current < 150
+    if (
+      native.isComposing ||
+      isComposingRef.current ||
+      native.keyCode === 229 ||
+      e.keyCode === 229 ||
+      recentlyComposed
+    ) {
+      return
     }
+    e.preventDefault()
+    submit()
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -722,7 +919,7 @@ const ChatComposer = memo(function ChatComposer({
                   <button
                     type="button"
                     onClick={() =>
-                      setPendingFiles((prev) => prev.filter((x) => x.id !== f.id))
+                      updatePendingFiles((prev) => prev.filter((x) => x.id !== f.id))
                     }
                     className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer"
                     style={{
@@ -748,7 +945,7 @@ const ChatComposer = memo(function ChatComposer({
                   <button
                     type="button"
                     onClick={() =>
-                      setPendingFiles((prev) => prev.filter((x) => x.id !== f.id))
+                      updatePendingFiles((prev) => prev.filter((x) => x.id !== f.id))
                     }
                     className="p-0.5 rounded-full hover:opacity-80 cursor-pointer shrink-0"
                     style={{ color: 'var(--text-muted)' }}
@@ -785,7 +982,14 @@ const ChatComposer = memo(function ChatComposer({
             ref={textareaRef}
             rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => updateInput(e.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false
+              lastCompositionEndRef.current = Date.now()
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
@@ -1044,6 +1248,7 @@ export function ChatView({
       )}
 
       <ChatComposer
+        sessionKey={sessionKey}
         assistantName={assistantName}
         activeProjectName={activeProject?.name}
         streaming={streaming}

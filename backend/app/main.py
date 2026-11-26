@@ -50,20 +50,27 @@ from .projects import (
     rebuild_projects_index,
 )
 from .activity import get_user_year_activity
+from .runs import cancel_active_run, get_active_run, start_detached_run
 from .status import get_companion_status
 from .titler import generate_smart_title
 from .vault import (
+    browse_user_vault,
+    create_user_vault_folder,
     delete_user_skill,
+    delete_user_vault_folder,
     ensure_user_vault,
     is_allowed_upload_ext,
     list_user_skills,
     list_user_tools,
     list_user_vault_files,
+    move_user_vault_file,
     read_user_skill,
     resolve_attachment_path,
+    resolve_vault_dir,
     resolve_vault_file,
     sanitize_filename,
     save_user_skill,
+    search_user_vault,
 )
 
 
@@ -730,7 +737,64 @@ def get_messages(session_id: str, user: dict = Depends(get_current_user)) -> dic
                 "created_at": r["created_at"],
             }
         )
-    return {"messages": messages}
+    active = get_active_run(session_id, user["id"])
+    return {
+        "messages": messages,
+        "active_run": active.snapshot() if active else None,
+    }
+
+
+@app.post("/portal-api/sessions/{session_id}/stop")
+def stop_session_run(session_id: str, user: dict = Depends(get_current_user)) -> dict:
+    with db_session() as conn:
+        _require_owned_session(conn, session_id, user["id"])
+    stopped = cancel_active_run(session_id, user["id"])
+    return {"ok": True, "stopped": stopped}
+
+
+@app.get("/portal-api/sessions/{session_id}/stream")
+async def attach_session_stream(
+    session_id: str, user: dict = Depends(get_current_user)
+) -> StreamingResponse:
+    """Re-attach to an in-flight detached background run after browser refresh or page switch."""
+    with db_session() as conn:
+        _require_owned_session(conn, session_id, user["id"])
+    run = get_active_run(session_id, user["id"])
+
+    async def reattach_generator():
+        if not run or run.finished:
+            yield f"data: {json.dumps({'type': 'idle'}, ensure_ascii=False)}\n\n"
+            return
+
+        q: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
+        run.subscribers.append(q)
+        try:
+            yield f"data: {json.dumps({'type': 'snapshot', 'run': run.snapshot()}, ensure_ascii=False)}\n\n"
+            while True:
+                if run.finished and q.empty():
+                    break
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    elapsed_ms = int((time.monotonic() - run.started_mono) * 1000)
+                    yield f"data: {json.dumps({'type': 'heartbeat', 'elapsed_ms': elapsed_ms}, ensure_ascii=False)}\n\n"
+                    continue
+                if ev is None:
+                    break
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        finally:
+            if q in run.subscribers:
+                run.subscribers.remove(q)
+
+    return StreamingResponse(
+        reattach_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -798,9 +862,13 @@ async def upload_image(
 
 @app.post("/portal-api/vault/upload")
 async def upload_vault_file(
-    file: UploadFile = File(...), user: dict = Depends(get_current_user)
+    file: UploadFile = File(...),
+    scope: str = "inbox",
+    dir: str = "",
+    user: dict = Depends(get_current_user),
 ) -> dict:
-    """Universal per-user file upload (chunked streaming to disk, up to MAX_UPLOAD_MB)."""
+    """Universal per-user file upload (chunked streaming to disk, up to MAX_UPLOAD_MB).
+    Supports uploading directly into a specific vault scope & folder."""
     orig_name = file.filename or "file"
     ext = Path(orig_name).suffix.lower()
     ctype = (file.content_type or "").lower()
@@ -814,9 +882,14 @@ async def upload_vault_file(
             detail=f"出于安全考虑暂不支持 {ext} 可执行文件，建议压缩为 ZIP 后上传",
         )
 
-    dirs = ensure_user_vault(user["id"])
+    target_scope = scope if scope in ("inbox", "artifacts", "archive") else "inbox"
+    target_dir = resolve_vault_dir(user["id"], target_scope, dir)
+    if target_dir is None:
+        raise HTTPException(status_code=400, detail="目标目录不合法")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    base_scope_dir = ensure_user_vault(user["id"])[target_scope].resolve()
 
-    if is_raster_image:
+    if is_raster_image and target_scope == "inbox" and not (dir or "").strip():
         max_img_bytes = MAX_IMAGE_UPLOAD_MB * 1024 * 1024
         raw = await file.read(max_img_bytes + 1)
         if len(raw) > max_img_bytes:
@@ -830,7 +903,7 @@ async def upload_vault_file(
         except Exception:
             raise HTTPException(status_code=400, detail="不支持的图片格式")
         fname = f"img_{uuid.uuid4().hex[:12]}.webp"
-        dest = dirs["inbox"] / fname
+        dest = target_dir / fname
         img.save(dest, format="WEBP", quality=85)
         return {
             "id": fname,
@@ -842,18 +915,19 @@ async def upload_vault_file(
         }
 
     safe_base = sanitize_filename(orig_name, fallback_ext=ext)
-    dest = dirs["inbox"] / safe_base
+    dest = target_dir / safe_base
     if dest.exists():
         stem = Path(safe_base).stem
         safe_base = f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
-        dest = dirs["inbox"] / safe_base
+        dest = target_dir / safe_base
 
     written = await _stream_upload_to_path(file, dest, MAX_UPLOAD_MB * 1024 * 1024)
+    rel_path = dest.resolve().relative_to(base_scope_dir).as_posix()
     return {
-        "id": safe_base,
+        "id": rel_path,
         "name": orig_name,
-        "url": f"/portal-api/vault/download/inbox/{safe_base}",
-        "is_image": False,
+        "url": f"/portal-api/vault/download/{target_scope}/{rel_path}",
+        "is_image": is_raster_image,
         "size": written,
         "ext": ext,
     }
@@ -862,6 +936,74 @@ async def upload_vault_file(
 @app.get("/portal-api/vault/files")
 def list_vault_files(user: dict = Depends(get_current_user)) -> dict:
     return list_user_vault_files(user["id"])
+
+
+@app.get("/portal-api/vault/browse")
+def browse_vault(
+    scope: str = "archive",
+    dir: str = "",
+    user: dict = Depends(get_current_user),
+) -> dict:
+    res = browse_user_vault(user["id"], scope, dir)
+    if res is None:
+        raise HTTPException(status_code=404, detail="目录不存在")
+    return res
+
+
+@app.get("/portal-api/vault/search")
+def search_vault(q: str = "", user: dict = Depends(get_current_user)) -> dict:
+    return search_user_vault(user["id"], q)
+
+
+class CreateVaultFolderRequest(BaseModel):
+    scope: str = "archive"
+    dir: str = ""
+    name: str = Field(min_length=1, max_length=60)
+
+
+class MoveVaultFileRequest(BaseModel):
+    from_scope: str
+    from_path: str
+    to_scope: str
+    to_dir: str = ""
+    new_name: Optional[str] = Field(default=None, max_length=80)
+
+
+@app.post("/portal-api/vault/folders")
+def create_vault_folder(
+    body: CreateVaultFolderRequest, user: dict = Depends(get_current_user)
+) -> dict:
+    created = create_user_vault_folder(user["id"], body.scope, body.dir, body.name)
+    if not created:
+        raise HTTPException(status_code=400, detail="文件夹名称不合法")
+    return {"ok": True, "folder": created}
+
+
+@app.delete("/portal-api/vault/folders/{scope}/{folder_path:path}")
+def remove_vault_folder(
+    scope: str, folder_path: str, user: dict = Depends(get_current_user)
+) -> dict:
+    ok, err_msg = delete_user_vault_folder(user["id"], scope, folder_path)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err_msg)
+    return {"ok": True}
+
+
+@app.post("/portal-api/vault/move")
+def move_vault_file(
+    body: MoveVaultFileRequest, user: dict = Depends(get_current_user)
+) -> dict:
+    moved = move_user_vault_file(
+        user["id"],
+        body.from_scope,
+        body.from_path,
+        body.to_scope,
+        body.to_dir,
+        body.new_name,
+    )
+    if not moved:
+        raise HTTPException(status_code=404, detail="源文件或目标目录不存在")
+    return {"ok": True, "file": moved}
 
 
 @app.get("/portal-api/vault/download/{scope}/{file_path:path}")
@@ -1047,100 +1189,41 @@ async def chat_stream(
             f"[本次上传附件在用户隔离仓中的本地路径（可直接读取、整理、合并或归档到 vault/archive/）：\n{paths_list}]"
         )
 
+    # Launch detached background run so browser refresh/page switch NEVER drops the task or loses DB persistence!
+    run = start_detached_run(
+        session_id=body.session_id,
+        user_id=user["id"],
+        user_message_id=user_msg_id,
+        assistant_message_id=asst_msg_id,
+        initial_title=new_title,
+        openclaw_text=openclaw_text,
+        image_paths=image_paths,
+        instructions=turn_instructions or None,
+        should_auto_title=should_auto_title,
+        auto_title_seed=text or ("附件：" + ", ".join(doc_display_names)),
+    )
+
     async def event_generator():
-        content_parts: list[str] = []
-        thinking_parts: list[str] = []
-        tools_map: dict[str, dict[str, str]] = {}
-        usage_obj: dict[str, Any] = {}
-        started_at = time.monotonic()
-
-        # Emit initial metadata immediately -> triggers "✓ 已送达" receipt on frontend
-        yield f"data: {json.dumps({'type': 'meta', 'user_message_id': user_msg_id, 'assistant_message_id': asst_msg_id, 'title': new_title, 'delivered_at': now_ms()}, ensure_ascii=False)}\n\n"
-
-        queue: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
-
-        async def _producer():
-            try:
-                async for ev in stream_openclaw_response(
-                    user_id=user["id"],
-                    session_id=body.session_id,
-                    text=openclaw_text,
-                    image_paths=image_paths,
-                    instructions=turn_instructions or None,
-                ):
-                    await queue.put(ev)
-            finally:
-                await queue.put(None)
-
-        producer_task = asyncio.create_task(_producer())
+        q: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
+        run.subscribers.append(q)
         try:
+            # Emit initial metadata immediately -> triggers "✓ 已送达" receipt on frontend
+            yield f"data: {json.dumps({'type': 'meta', 'user_message_id': user_msg_id, 'assistant_message_id': asst_msg_id, 'title': new_title, 'delivered_at': now_ms()}, ensure_ascii=False)}\n\n"
             while True:
+                if run.finished and q.empty():
+                    break
                 try:
-                    ev = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    ev = await asyncio.wait_for(q.get(), timeout=5.0)
                 except asyncio.TimeoutError:
-                    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                    elapsed_ms = int((time.monotonic() - run.started_mono) * 1000)
                     yield f"data: {json.dumps({'type': 'heartbeat', 'elapsed_ms': elapsed_ms}, ensure_ascii=False)}\n\n"
                     continue
                 if ev is None:
                     break
-                ev_type = ev.get("type")
-                if ev_type == "delta":
-                    content_parts.append(ev["text"])
-                elif ev_type == "thinking":
-                    thinking_parts.append(ev["delta"])
-                elif ev_type == "tool":
-                    tid = str(ev.get("id") or ev.get("name"))
-                    tools_map[tid] = {
-                        "id": tid,
-                        "name": str(ev.get("name") or "tool"),
-                        "status": str(ev.get("status") or "running"),
-                    }
-                elif ev_type == "done":
-                    usage_obj = ev.get("usage") or {}
-                    usage_obj["elapsed_ms"] = int((time.monotonic() - started_at) * 1000)
-                    ev = {**ev, "usage": usage_obj}
                 yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
         finally:
-            if not producer_task.done():
-                producer_task.cancel()
-
-        # Persist assistant turn in SQLite
-        final_content = "".join(content_parts)
-        final_thinking = "".join(thinking_parts)
-        final_tools = list(tools_map.values())
-        if final_content or final_thinking or final_tools:
-            with db_session() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO chat_messages
-                      (id, session_id, role, content, thinking, tools_json, usage_json, created_at)
-                    VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        asst_msg_id,
-                        body.session_id,
-                        final_content,
-                        final_thinking,
-                        json.dumps(final_tools, ensure_ascii=False),
-                        json.dumps(usage_obj, ensure_ascii=False),
-                        now_ms(),
-                    ),
-                )
-                conn.execute(
-                    "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
-                    (now_ms(), body.session_id),
-                )
-
-            if should_auto_title and final_content:
-                seed_user = text or ("附件：" + ", ".join(doc_display_names))
-                smart_title = await generate_smart_title(seed_user, final_content)
-                if smart_title and smart_title != new_title:
-                    with db_session() as conn:
-                        conn.execute(
-                            "UPDATE chat_sessions SET title = ? WHERE id = ? AND user_id = ?",
-                            (smart_title, body.session_id, user["id"]),
-                        )
-                    yield f"data: {json.dumps({'type': 'title', 'title': smart_title}, ensure_ascii=False)}\n\n"
+            if q in run.subscribers:
+                run.subscribers.remove(q)
 
     return StreamingResponse(
         event_generator(),

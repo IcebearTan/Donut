@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Menu, PanelLeftOpen } from 'lucide-react'
 import {
   api,
+  attachSessionStream,
   streamChat,
+  type ActiveRunSnapshot,
   type ChatMessage,
   type ChatSession,
   type CompanionStatus,
@@ -63,7 +65,7 @@ export function App() {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [streaming, setStreaming] = useState(false)
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null)
   const [distilling, setDistilling] = useState(false)
   const [liveState, setLiveState] = useState<LiveStreamState>({
     streaming: false,
@@ -92,6 +94,29 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null)
   const toastTimerRef = useRef<number | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const activeSessionIdRef = useRef<string | null>(null)
+  const streamingSessionIdRef = useRef<string | null>(null)
+  const liveMessagesCacheRef = useRef<Record<string, ChatMessage[]>>({})
+
+  activeSessionIdRef.current = activeSessionId
+  streamingSessionIdRef.current = streamingSessionId
+
+  const setActiveSessionAndRef = useCallback((id: string | null) => {
+    activeSessionIdRef.current = id
+    setActiveSessionId(id)
+  }, [])
+
+  const updateSessionMessages = useCallback(
+    (sid: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+      const prev = liveMessagesCacheRef.current[sid] || []
+      const next = updater(prev)
+      liveMessagesCacheRef.current[sid] = next
+      if (activeSessionIdRef.current === sid) {
+        setMessages(next)
+      }
+    },
+    [],
+  )
 
   const showToast = useCallback((text: string) => {
     setToast(text)
@@ -144,6 +169,219 @@ export function App() {
     }
   }, [])
 
+  const reattachActiveRun = useCallback(
+    (sid: string, baseMessages: ChatMessage[], run: ActiveRunSnapshot) => {
+      if (streamingSessionIdRef.current === sid) return
+      const liveAsstId = run.assistant_message_id || `live-${sid}`
+      const runningTool = [...(run.tools || [])].reverse().find((t) => t.status === 'running')
+      const liveMsg: ChatMessage = {
+        id: liveAsstId,
+        role: 'assistant',
+        content: run.content || '',
+        thinking: run.thinking || '',
+        tools: run.tools || [],
+        created_at: run.started_at || Date.now(),
+        startedAt: run.started_at || Date.now(),
+        streaming: true,
+      }
+      const initialMsgs = [...baseMessages.filter((m) => m.id !== liveAsstId), liveMsg]
+      liveMessagesCacheRef.current[sid] = initialMsgs
+      if (activeSessionIdRef.current === sid) {
+        setMessages(initialMsgs)
+      }
+
+      const controller = new AbortController()
+      abortRef.current = controller
+      streamingSessionIdRef.current = sid
+      setStreamingSessionId(sid)
+      setLiveState({
+        streaming: true,
+        startedAt: run.started_at || Date.now(),
+        activeToolName: runningTool?.name || null,
+      })
+
+      let pendingLiveText = ''
+      let pendingLiveThinking = ''
+      let rafId: number | null = null
+      let sawIdle = false
+
+      const flushLiveFrame = () => {
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId)
+          rafId = null
+        }
+        const addText = pendingLiveText
+        const addThink = pendingLiveThinking
+        pendingLiveText = ''
+        pendingLiveThinking = ''
+        if (!addText && !addThink) return
+        updateSessionMessages(sid, (prev) =>
+          prev.map((m) =>
+            m.id === liveAsstId
+              ? {
+                  ...m,
+                  content: addText ? m.content + addText : m.content,
+                  thinking: addThink ? (m.thinking || '') + addThink : m.thinking,
+                }
+              : m,
+          ),
+        )
+      }
+
+      const scheduleLiveFrame = () => {
+        if (rafId !== null) return
+        rafId = window.requestAnimationFrame(() => {
+          rafId = null
+          flushLiveFrame()
+        })
+      }
+
+      attachSessionStream(
+        sid,
+        (ev) => {
+          if (ev.type === 'idle') {
+            sawIdle = true
+            return
+          }
+          if (ev.type === 'snapshot') {
+            const snap = ev.run
+            const rTool = [...(snap.tools || [])].reverse().find((t) => t.status === 'running')
+            setLiveState({
+              streaming: !snap.finished,
+              startedAt: snap.started_at || Date.now(),
+              activeToolName: rTool?.name || null,
+            })
+            updateSessionMessages(sid, (prev) =>
+              prev.map((m) =>
+                m.id === liveAsstId
+                  ? {
+                      ...m,
+                      content: snap.content || '',
+                      thinking: snap.thinking || '',
+                      tools: snap.tools || [],
+                      streaming: !snap.finished,
+                    }
+                  : m,
+              ),
+            )
+          } else if (ev.type === 'delta') {
+            pendingLiveText += ev.text
+            scheduleLiveFrame()
+          } else if (ev.type === 'thinking') {
+            pendingLiveThinking += ev.delta
+            scheduleLiveFrame()
+          } else if (ev.type === 'tool') {
+            flushLiveFrame()
+            setLiveState((prev) => ({
+              streaming: true,
+              startedAt: prev.startedAt || Date.now(),
+              activeToolName: ev.status === 'running' ? ev.name : null,
+            }))
+            updateSessionMessages(sid, (prev) =>
+              prev.map((m) => {
+                if (m.id !== liveAsstId) return m
+                const existing = m.tools || []
+                const idx = existing.findIndex((t) => t.id === ev.id)
+                const nextTools =
+                  idx >= 0
+                    ? existing.map((t, i) =>
+                        i === idx ? { id: ev.id, name: ev.name, status: ev.status } : t,
+                      )
+                    : [...existing, { id: ev.id, name: ev.name, status: ev.status }]
+                return { ...m, tools: nextTools }
+              }),
+            )
+          } else if (ev.type === 'title') {
+            setSessions((prev) =>
+              prev.map((s) => (s.id === sid ? { ...s, title: ev.title } : s)),
+            )
+          } else if (ev.type === 'done') {
+            flushLiveFrame()
+            updateSessionMessages(sid, (prev) =>
+              prev.map((m) =>
+                m.id === liveAsstId ? { ...m, usage: ev.usage, streaming: false } : m,
+              ),
+            )
+          } else if (ev.type === 'error') {
+            flushLiveFrame()
+            updateSessionMessages(sid, (prev) =>
+              prev.map((m) =>
+                m.id === liveAsstId
+                  ? {
+                      ...m,
+                      content: m.content
+                        ? `${m.content}\n\n> ⚠️ ${ev.message}`
+                        : `⚠️ ${ev.message}`,
+                      streaming: false,
+                    }
+                  : m,
+              ),
+            )
+          }
+        },
+        controller.signal,
+      )
+        .catch(() => {
+          // ignore abort / transient disconnect
+        })
+        .finally(async () => {
+          flushLiveFrame()
+          updateSessionMessages(sid, (prev) =>
+            prev.map((m) => (m.id === liveAsstId ? { ...m, streaming: false } : m)),
+          )
+          if (streamingSessionIdRef.current === sid) {
+            streamingSessionIdRef.current = null
+            setStreamingSessionId(null)
+            setLiveState({ streaming: false, startedAt: null, activeToolName: null })
+            abortRef.current = null
+          }
+          if (sawIdle) {
+            try {
+              const latest = await api.getMessages(sid)
+              liveMessagesCacheRef.current[sid] = latest.messages
+              if (activeSessionIdRef.current === sid) {
+                setMessages(latest.messages)
+              }
+            } catch {
+              // ignore
+            }
+          }
+          refreshStatus()
+        })
+    },
+    [refreshStatus, updateSessionMessages],
+  )
+
+  const openSessionById = useCallback(
+    async (id: string, projectId: string | null) => {
+      setActiveAppId('donut')
+      setActiveSessionAndRef(id)
+      setActiveProjectId(projectId)
+
+      // If this session is actively streaming in memory, jump straight back to its live buffer!
+      if (streamingSessionIdRef.current === id && liveMessagesCacheRef.current[id]) {
+        setMessages(liveMessagesCacheRef.current[id])
+        return
+      }
+
+      try {
+        const res = await api.getMessages(id)
+        if (activeSessionIdRef.current !== id) return
+        if (res.active_run && !res.active_run.finished) {
+          reattachActiveRun(id, res.messages, res.active_run)
+        } else {
+          liveMessagesCacheRef.current[id] = res.messages
+          setMessages(res.messages)
+        }
+      } catch {
+        if (activeSessionIdRef.current === id) {
+          setMessages([])
+        }
+      }
+    },
+    [reattachActiveRun, setActiveSessionAndRef],
+  )
+
   const loadWorkspace = useCallback(async () => {
     const [meRes, sessRes, projRes] = await Promise.all([
       api.me(),
@@ -163,17 +401,22 @@ export function App() {
         : mainSess || sessRes.sessions[0] || null
 
     if (initial) {
-      setActiveSessionId(initial.id)
+      setActiveSessionAndRef(initial.id)
       setActiveProjectId(initial.project_id || null)
       const msgRes = await api.getMessages(initial.id)
-      setMessages(msgRes.messages)
+      if (msgRes.active_run && !msgRes.active_run.finished) {
+        reattachActiveRun(initial.id, msgRes.messages, msgRes.active_run)
+      } else {
+        liveMessagesCacheRef.current[initial.id] = msgRes.messages
+        setMessages(msgRes.messages)
+      }
     } else {
-      setActiveSessionId(null)
+      setActiveSessionAndRef(null)
       setActiveProjectId(null)
       setMessages([])
     }
     api.getStatus().then(setCompanionStatus).catch(() => {})
-  }, [])
+  }, [reattachActiveRun, setActiveSessionAndRef])
 
   useEffect(() => {
     loadWorkspace()
@@ -192,71 +435,45 @@ export function App() {
   }, [user])
 
   async function handleSelectSession(id: string) {
-    if (streaming) return
-    setActiveAppId('donut')
-    setActiveSessionId(id)
     const target = sessions.find((s) => s.id === id)
-    setActiveProjectId(target?.project_id || null)
-    try {
-      const res = await api.getMessages(id)
-      setMessages(res.messages)
-    } catch {
-      setMessages([])
-    }
+    await openSessionById(id, target?.project_id || null)
   }
 
   async function handleSelectMainSession() {
-    if (streaming) return
-    setActiveAppId('donut')
-    setActiveProjectId(null)
     const mainSess = sessions.find((s) => Boolean(s.is_main))
     if (mainSess) {
-      setActiveSessionId(mainSess.id)
-      try {
-        const res = await api.getMessages(mainSess.id)
-        setMessages(res.messages)
-      } catch {
-        setMessages([])
-      }
+      await openSessionById(mainSess.id, null)
     } else {
-      setActiveSessionId(null)
+      setActiveAppId('donut')
+      setActiveProjectId(null)
+      setActiveSessionAndRef(null)
       setMessages([])
     }
   }
 
   function handleNewStandaloneSession() {
-    if (streaming) return
     setActiveAppId('donut')
     setActiveProjectId(null)
-    setActiveSessionId(null)
+    setActiveSessionAndRef(null)
     setMessages([])
   }
 
   async function handleSelectProject(projectId: string) {
-    if (streaming) return
-    setActiveAppId('donut')
-    setActiveProjectId(projectId)
     const projSessions = sessions.filter((s) => s.project_id === projectId && !s.is_main)
     if (projSessions.length > 0) {
-      const latest = projSessions[0]
-      setActiveSessionId(latest.id)
-      try {
-        const res = await api.getMessages(latest.id)
-        setMessages(res.messages)
-      } catch {
-        setMessages([])
-      }
+      await openSessionById(projSessions[0].id, projectId)
     } else {
-      setActiveSessionId(null)
+      setActiveAppId('donut')
+      setActiveProjectId(projectId)
+      setActiveSessionAndRef(null)
       setMessages([])
     }
   }
 
   function handleNewProjectSession(projectId: string) {
-    if (streaming) return
     setActiveAppId('donut')
     setActiveProjectId(projectId)
-    setActiveSessionId(null)
+    setActiveSessionAndRef(null)
     setMessages([])
   }
 
@@ -266,7 +483,7 @@ export function App() {
   }
 
   async function handleMoveSession(id: string, projectId: string | null) {
-    if (streaming) return
+    if (streamingSessionIdRef.current === id) return
     try {
       const res = await api.moveSessionToProject(id, projectId)
       setSessions((prev) =>
@@ -299,16 +516,23 @@ export function App() {
   }
 
   async function handleDeleteSession(id: string) {
-    if (streaming) return
+    if (streamingSessionIdRef.current === id) {
+      showToast('该对话正在回复中，请先停止生成再删除')
+      return
+    }
     await api.deleteSession(id)
+    delete liveMessagesCacheRef.current[id]
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id)
       if (activeSessionId === id) {
         const fallback = next[0] || null
-        setActiveSessionId(fallback?.id || null)
+        setActiveSessionAndRef(fallback?.id || null)
         setActiveProjectId(fallback?.project_id || null)
         if (fallback) {
-          api.getMessages(fallback.id).then((r) => setMessages(r.messages)).catch(() => setMessages([]))
+          api.getMessages(fallback.id).then((r) => {
+            liveMessagesCacheRef.current[fallback.id] = r.messages
+            if (activeSessionIdRef.current === fallback.id) setMessages(r.messages)
+          }).catch(() => setMessages([]))
         } else {
           setMessages([])
         }
@@ -318,7 +542,7 @@ export function App() {
   }
 
   async function handleDistillActiveProject() {
-    if (!activeProjectId || !activeSessionId || distilling || streaming) return
+    if (!activeProjectId || !activeSessionId || distilling || streamingSessionId === activeSessionId) return
     const proj = projects.find((p) => p.id === activeProjectId)
     setDistilling(true)
     try {
@@ -347,14 +571,22 @@ export function App() {
   }
 
   async function handleSend(text: string, attachments: UploadedAttachment[]) {
+    if (streamingSessionIdRef.current) {
+      showToast('Donut 正在处理上一条任务，可先切回去查看或等待完成')
+      return
+    }
     let sid = activeSessionId
     if (!sid) {
       const created = await api.createSession('新对话', activeProjectId)
       sid = created.session.id
       setSessions((prev) => [created.session, ...prev])
-      setActiveSessionId(sid)
+      setActiveSessionAndRef(sid)
+      liveMessagesCacheRef.current[sid] = []
+    } else if (!liveMessagesCacheRef.current[sid]) {
+      liveMessagesCacheRef.current[sid] = messages
     }
 
+    const runSid = sid
     const imageFiles = attachments.filter((f) => f.is_image)
     const docFiles = attachments.filter((f) => !f.is_image)
     const imageIds = imageFiles.map((f) => f.id)
@@ -372,7 +604,7 @@ export function App() {
     const sentAt = Date.now()
 
     // Phase 1 (T=0ms): Only insert user bubble with gentle "发送中…"
-    setMessages((prev) => [
+    updateSessionMessages(runSid, (prev) => [
       ...prev,
       {
         id: tempUserId,
@@ -386,7 +618,8 @@ export function App() {
 
     const controller = new AbortController()
     abortRef.current = controller
-    setStreaming(true)
+    streamingSessionIdRef.current = runSid
+    setStreamingSessionId(runSid)
 
     let deliveredShown = false
     let assistantInserted = false
@@ -419,7 +652,7 @@ export function App() {
       pendingLiveText = ''
       pendingLiveThinking = ''
       if (!addText && !addThink) return
-      setMessages((prev) =>
+      updateSessionMessages(runSid, (prev) =>
         prev.map((m) =>
           m.id === tempAsstId
             ? {
@@ -463,7 +696,7 @@ export function App() {
     const markUserDeliveredNow = () => {
       if (deliveredShown) return
       deliveredShown = true
-      setMessages((prev) =>
+      updateSessionMessages(runSid, (prev) =>
         prev.map((m) => (m.id === tempUserId ? { ...m, deliveryStatus: 'delivered' } : m)),
       )
     }
@@ -477,7 +710,7 @@ export function App() {
           startedAt: prev.startedAt || appearAt,
           activeToolName: prev.activeToolName,
         }))
-        setMessages((prev) => [
+        updateSessionMessages(runSid, (prev) => [
           ...prev,
           {
             id: tempAsstId,
@@ -492,7 +725,9 @@ export function App() {
           },
         ])
       } else if (patch) {
-        setMessages((prev) => prev.map((m) => (m.id === tempAsstId ? { ...m, ...patch } : m)))
+        updateSessionMessages(runSid, (prev) =>
+          prev.map((m) => (m.id === tempAsstId ? { ...m, ...patch } : m)),
+        )
       }
     }
 
@@ -522,7 +757,7 @@ export function App() {
             activeToolName: runningTool.name,
           }))
         }
-        setMessages((prev) =>
+        updateSessionMessages(runSid, (prev) =>
           prev.map((m) => {
             if (m.id !== tempAsstId) return m
             let nextContent = m.content + textToFlush
@@ -567,12 +802,12 @@ export function App() {
 
     try {
       await streamChat(
-        { session_id: sid, content: text, images: imageIds, attachments: attachmentIds },
+        { session_id: runSid, content: text, images: imageIds, attachments: attachmentIds },
         (ev) => {
           if (ev.type === 'meta') {
             setSessions((prev) =>
               prev.map((s) =>
-                s.id === sid ? { ...s, title: ev.title, updated_at: Date.now() } : s,
+                s.id === runSid ? { ...s, title: ev.title, updated_at: Date.now() } : s,
               ),
             )
             // Beat 2 (~580ms): Crossfade "发送中…" -> "✓✓ 已送达"
@@ -610,7 +845,7 @@ export function App() {
               startedAt: prev.startedAt || Date.now(),
               activeToolName: ev.status === 'running' ? ev.name : null,
             }))
-            setMessages((prev) =>
+            updateSessionMessages(runSid, (prev) =>
               prev.map((m) => {
                 if (m.id !== tempAsstId) return m
                 const existing = m.tools || []
@@ -633,7 +868,7 @@ export function App() {
             scheduleLiveFrame()
           } else if (ev.type === 'title') {
             setSessions((prev) =>
-              prev.map((s) => (s.id === sid ? { ...s, title: ev.title } : s)),
+              prev.map((s) => (s.id === runSid ? { ...s, title: ev.title } : s)),
             )
           } else if (ev.type === 'done') {
             if (!readyToFlush) {
@@ -642,7 +877,7 @@ export function App() {
               return
             }
             flushLiveFrame()
-            setMessages((prev) =>
+            updateSessionMessages(runSid, (prev) =>
               prev.map((m) =>
                 m.id === tempAsstId ? { ...m, usage: ev.usage, streaming: false } : m,
               ),
@@ -653,7 +888,7 @@ export function App() {
               return
             }
             flushLiveFrame()
-            setMessages((prev) =>
+            updateSessionMessages(runSid, (prev) =>
               prev.map((m) =>
                 m.id === tempAsstId
                   ? {
@@ -681,14 +916,14 @@ export function App() {
       if ((err as Error).name !== 'AbortError') {
         const msg = err instanceof Error ? err.message : '连接中断'
         if (!deliveredShown) {
-          setMessages((prev) =>
+          updateSessionMessages(runSid, (prev) =>
             prev.map((m) => (m.id === tempUserId ? { ...m, deliveryStatus: 'failed' } : m)),
           )
         }
         if (!assistantInserted) {
           ensureAssistantBubble({ content: `⚠️ ${msg}`, streaming: false })
         } else {
-          setMessages((prev) =>
+          updateSessionMessages(runSid, (prev) =>
             prev.map((m) =>
               m.id === tempAsstId
                 ? { ...m, content: m.content || `⚠️ ${msg}`, streaming: false }
@@ -704,19 +939,26 @@ export function App() {
         flushBufferedEvents()
       }
       if (assistantInserted) {
-        setMessages((prev) =>
+        updateSessionMessages(runSid, (prev) =>
           prev.map((m) => (m.id === tempAsstId ? { ...m, streaming: false } : m)),
         )
       }
-      setStreaming(false)
-      setLiveState({ streaming: false, startedAt: null, activeToolName: null })
-      abortRef.current = null
+      if (streamingSessionIdRef.current === runSid) {
+        streamingSessionIdRef.current = null
+        setStreamingSessionId(null)
+        setLiveState({ streaming: false, startedAt: null, activeToolName: null })
+        abortRef.current = null
+      }
       refreshStatus()
     }
   }
 
   function handleStop() {
+    const sid = streamingSessionIdRef.current
     abortRef.current?.abort()
+    if (sid) {
+      api.stopSessionRun(sid).catch(() => {})
+    }
   }
 
   async function handleSelectApp(app: PortalAppItem) {
@@ -735,12 +977,16 @@ export function App() {
   }
 
   async function handleLogout() {
+    abortRef.current?.abort()
     await api.logout().catch(() => {})
     setUser(null)
     setSessions([])
     setProjects([])
-    setActiveSessionId(null)
+    setActiveSessionAndRef(null)
     setActiveProjectId(null)
+    setStreamingSessionId(null)
+    streamingSessionIdRef.current = null
+    liveMessagesCacheRef.current = {}
     setMessages([])
     setCompanionStatus(null)
     setActiveAppId('donut')
@@ -815,6 +1061,7 @@ export function App() {
         activeProjectId={activeProjectId}
         sessions={sessions}
         activeSessionId={activeSessionId}
+        streamingSessionId={streamingSessionId}
         theme={theme}
         desktopOpen={desktopSidebarOpen}
         openMobile={mobileSidebarOpen}
@@ -1037,7 +1284,7 @@ export function App() {
               activeProject={activeProject}
               isMainSession={isMainSession}
               messages={messages}
-              streaming={streaming}
+              streaming={Boolean(activeSessionId && streamingSessionId === activeSessionId)}
               onSend={handleSend}
               onStop={handleStop}
               onOpenProjectMemory={(pid) => setProjectModal({ open: true, projectId: pid })}
@@ -1079,7 +1326,7 @@ export function App() {
               setProjects((prev) => [saved, ...prev])
               setActiveAppId('donut')
               setActiveProjectId(saved.id)
-              setActiveSessionId(null)
+              setActiveSessionAndRef(null)
               setMessages([])
               showToast(`已创建项目「${saved.name}」`)
             } else {

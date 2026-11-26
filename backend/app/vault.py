@@ -82,6 +82,278 @@ def resolve_vault_file(user_id: str, scope: str, rel_path: str) -> Path | None:
     return target
 
 
+def resolve_vault_dir(user_id: str, scope: str, rel_dir: str = "") -> Path | None:
+    if scope not in VAULT_SCOPES:
+        return None
+    clean = (rel_dir or "").strip().strip("/")
+    if ".." in clean or "\\" in clean or clean.startswith("/"):
+        return None
+    dirs = ensure_user_vault(user_id)
+    base = dirs[scope].resolve()
+    target = (base / clean).resolve() if clean else base
+    try:
+        target.relative_to(base)
+    except ValueError:
+        return None
+    return target
+
+
+def _dir_stats(folder: Path) -> tuple[int, int, int]:
+    """Return (file_count, total_size, latest_mtime_ms) recursively inside folder."""
+    fcount = 0
+    total = 0
+    latest = int(folder.stat().st_mtime * 1000)
+    for p in folder.rglob("*"):
+        if p.is_file() and not p.name.startswith("."):
+            try:
+                st = p.stat()
+                fcount += 1
+                total += st.st_size
+                mt = int(st.st_mtime * 1000)
+                if mt > latest:
+                    latest = mt
+            except OSError:
+                continue
+    return fcount, total, latest
+
+
+def _vault_scope_summary(user_id: str) -> dict[str, Any]:
+    dirs = ensure_user_vault(user_id)
+    counts: dict[str, int] = {}
+    total_size = 0
+    for sc in VAULT_SCOPES:
+        c = 0
+        for p in dirs[sc].rglob("*"):
+            if p.is_file() and not p.name.startswith("."):
+                try:
+                    c += 1
+                    total_size += p.stat().st_size
+                except OSError:
+                    pass
+        counts[sc] = c
+    legacy_gen = GENERATED_DIR / user_id
+    if legacy_gen.exists():
+        existing = {p.name for p in dirs["artifacts"].iterdir() if p.is_file()}
+        for p in legacy_gen.iterdir():
+            if p.is_file() and not p.name.startswith(".") and p.name not in existing:
+                try:
+                    counts["artifacts"] += 1
+                    total_size += p.stat().st_size
+                except OSError:
+                    pass
+
+    # Top-level archive categories for quick sidebar navigation
+    top_categories: list[dict[str, Any]] = []
+    if dirs["archive"].exists():
+        for d in sorted(dirs["archive"].iterdir(), key=lambda x: x.name):
+            if d.is_dir() and not d.name.startswith("."):
+                fc, sz, _ = _dir_stats(d)
+                top_categories.append(
+                    {
+                        "name": d.name,
+                        "path": d.name,
+                        "file_count": fc,
+                        "size": sz,
+                    }
+                )
+    return {
+        "counts": counts,
+        "total_files": sum(counts.values()),
+        "total_size": total_size,
+        "archive_categories": top_categories,
+    }
+
+
+def browse_user_vault(user_id: str, scope: str, rel_dir: str = "") -> dict[str, Any] | None:
+    """Finder/Drive-style single-directory listing with breadcrumbs & folder stats."""
+    target = resolve_vault_dir(user_id, scope, rel_dir)
+    if target is None or not target.exists() or not target.is_dir():
+        return None
+    dirs = ensure_user_vault(user_id)
+    base = dirs[scope].resolve()
+    clean_dir = "" if target == base else target.relative_to(base).as_posix()
+
+    folders: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
+
+    for entry in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+        if entry.name.startswith("."):
+            continue
+        rel = entry.relative_to(base).as_posix()
+        if entry.is_dir():
+            fc, sz, latest = _dir_stats(entry)
+            folders.append(
+                {
+                    "scope": scope,
+                    "path": rel,
+                    "name": entry.name,
+                    "file_count": fc,
+                    "size": sz,
+                    "updated_at": latest,
+                }
+            )
+        elif entry.is_file():
+            st = entry.stat()
+            files.append(
+                {
+                    "scope": scope,
+                    "path": rel,
+                    "name": entry.name,
+                    "ext": entry.suffix.lower(),
+                    "size": st.st_size,
+                    "updated_at": int(st.st_mtime * 1000),
+                    "url": f"/portal-api/vault/download/{scope}/{rel}",
+                }
+            )
+
+    # Surface legacy generated files at root of artifacts
+    if scope == "artifacts" and not clean_dir:
+        legacy_gen = GENERATED_DIR / user_id
+        if legacy_gen.exists():
+            seen = {f["name"] for f in files}
+            for p in legacy_gen.iterdir():
+                if p.is_file() and not p.name.startswith(".") and p.name not in seen:
+                    st = p.stat()
+                    files.append(
+                        {
+                            "scope": "artifacts",
+                            "path": p.name,
+                            "name": p.name,
+                            "ext": p.suffix.lower(),
+                            "size": st.st_size,
+                            "updated_at": int(st.st_mtime * 1000),
+                            "url": f"/portal-api/files/{p.name}",
+                        }
+                    )
+
+    files.sort(key=lambda x: x["updated_at"], reverse=True)
+
+    breadcrumbs: list[dict[str, str]] = []
+    if clean_dir:
+        acc: list[str] = []
+        for seg in clean_dir.split("/"):
+            acc.append(seg)
+            breadcrumbs.append({"name": seg, "dir": "/".join(acc)})
+
+    return {
+        "scope": scope,
+        "dir": clean_dir,
+        "breadcrumbs": breadcrumbs,
+        "folders": folders,
+        "files": files,
+        "summary": _vault_scope_summary(user_id),
+    }
+
+
+def search_user_vault(user_id: str, query: str) -> dict[str, Any]:
+    q = (query or "").strip().lower()
+    dirs = ensure_user_vault(user_id)
+    matched_files: list[dict[str, Any]] = []
+    matched_folders: list[dict[str, Any]] = []
+    if not q:
+        return {"files": [], "folders": []}
+
+    for sc in VAULT_SCOPES:
+        base = dirs[sc]
+        for p in base.rglob("*"):
+            if p.name.startswith("."):
+                continue
+            rel = p.relative_to(base).as_posix()
+            if q not in p.name.lower() and q not in rel.lower():
+                continue
+            if p.is_dir():
+                fc, sz, latest = _dir_stats(p)
+                matched_folders.append(
+                    {
+                        "scope": sc,
+                        "path": rel,
+                        "name": p.name,
+                        "file_count": fc,
+                        "size": sz,
+                        "updated_at": latest,
+                    }
+                )
+            elif p.is_file():
+                st = p.stat()
+                matched_files.append(
+                    {
+                        "scope": sc,
+                        "path": rel,
+                        "name": p.name,
+                        "ext": p.suffix.lower(),
+                        "size": st.st_size,
+                        "updated_at": int(st.st_mtime * 1000),
+                        "url": f"/portal-api/vault/download/{sc}/{rel}",
+                    }
+                )
+    matched_files.sort(key=lambda x: x["updated_at"], reverse=True)
+    return {"files": matched_files[:100], "folders": matched_folders[:40]}
+
+
+def create_user_vault_folder(
+    user_id: str, scope: str, rel_dir: str, folder_name: str
+) -> dict[str, Any] | None:
+    parent = resolve_vault_dir(user_id, scope, rel_dir)
+    if parent is None or not parent.exists() or not parent.is_dir():
+        return None
+    clean_name = re.sub(r"[\\/:*?\"<>|]+", "_", (folder_name or "").strip()).strip(". ")[:60]
+    if not clean_name or clean_name in (".", ".."):
+        return None
+    target = parent / clean_name
+    target.mkdir(parents=True, exist_ok=True)
+    dirs = ensure_user_vault(user_id)
+    rel = target.relative_to(dirs[scope].resolve()).as_posix()
+    return {"scope": scope, "path": rel, "name": clean_name}
+
+
+def move_user_vault_file(
+    user_id: str,
+    from_scope: str,
+    from_path: str,
+    to_scope: str,
+    to_dir: str = "",
+    new_name: str | None = None,
+) -> dict[str, Any] | None:
+    src = resolve_vault_file(user_id, from_scope, from_path)
+    dst_dir = resolve_vault_dir(user_id, to_scope, to_dir)
+    if src is None or not src.exists() or not src.is_file() or dst_dir is None:
+        return None
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    final_name = src.name
+    if new_name and new_name.strip():
+        cleaned = re.sub(r"[\\/:*?\"<>|]+", "_", new_name.strip()).strip(". ")[:80]
+        if cleaned:
+            final_name = cleaned
+    dst = dst_dir / final_name
+    if dst.resolve() == src.resolve():
+        dirs = ensure_user_vault(user_id)
+        rel = dst.relative_to(dirs[to_scope].resolve()).as_posix()
+        return {"scope": to_scope, "path": rel, "name": dst.name}
+    if dst.exists():
+        stem = Path(final_name).stem
+        ext = Path(final_name).suffix
+        dst = dst_dir / f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
+    src.rename(dst)
+    dirs = ensure_user_vault(user_id)
+    rel = dst.relative_to(dirs[to_scope].resolve()).as_posix()
+    return {"scope": to_scope, "path": rel, "name": dst.name}
+
+
+def delete_user_vault_folder(user_id: str, scope: str, rel_dir: str) -> tuple[bool, str]:
+    clean = (rel_dir or "").strip().strip("/")
+    if not clean:
+        return False, "不能删除根目录"
+    target = resolve_vault_dir(user_id, scope, clean)
+    if target is None or not target.exists() or not target.is_dir():
+        return False, "目录不存在"
+    # Only delete empty directories for safety (prevents accidental wipe of an entire project archive!)
+    has_children = any(not p.name.startswith(".") for p in target.iterdir())
+    if has_children:
+        return False, "请先移出或删除该文件夹内的文件与子目录"
+    target.rmdir()
+    return True, ""
+
+
 def list_user_vault_files(user_id: str) -> dict[str, Any]:
     dirs = ensure_user_vault(user_id)
     out: dict[str, Any] = {s: [] for s in VAULT_SCOPES}

@@ -36,6 +36,7 @@ interface Props {
   activeProjectId: string | null
   sessions: ChatSession[]
   activeSessionId: string | null
+  streamingSessionId?: string | null
   theme: 'light' | 'dark'
   desktopOpen: boolean
   openMobile: boolean
@@ -93,6 +94,7 @@ export function SessionSidebar({
   activeProjectId,
   sessions,
   activeSessionId,
+  streamingSessionId,
   theme,
   desktopOpen,
   openMobile,
@@ -234,6 +236,7 @@ export function SessionSidebar({
 
   function renderSessionRow(s: ChatSession, isMobile: boolean, nested = false) {
     const active = activeAppId === 'donut' && s.id === activeSessionId
+    const isStreamingRow = Boolean(streamingSessionId && streamingSessionId === s.id)
     const isEditing = editingId === s.id
     return (
       <div
@@ -262,7 +265,9 @@ export function SessionSidebar({
               value={draftTitle}
               onChange={(e) => setDraftTitle(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') commitEdit(s.id)
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                  commitEdit(s.id)
+                }
                 if (e.key === 'Escape') setEditingId(null)
               }}
               className="flex-1 min-w-0 px-2 py-1 text-sm rounded outline-none"
@@ -291,6 +296,13 @@ export function SessionSidebar({
           </div>
         ) : (
           <>
+            {isStreamingRow && (
+              <span
+                title="正在回复中"
+                className="w-2 h-2 rounded-full shrink-0 animate-soft-breathe"
+                style={{ background: '#f59e0b' }}
+              />
+            )}
             <span
               className={`flex-1 truncate leading-snug ${
                 nested ? 'text-[13.5px]' : 'text-[14px]'
@@ -383,17 +395,26 @@ export function SessionSidebar({
             <Compass size={17} className="shrink-0 opacity-80" />
             <span className="truncate">主对话</span>
           </span>
-          {projects.length > 0 && (
-            <span
-              className="text-[11px] px-2 py-0.5 rounded-full shrink-0"
-              style={{
-                background: 'var(--bg-elevated)',
-                color: 'var(--text-muted)',
-              }}
-            >
-              游龙
-            </span>
-          )}
+          <span className="flex items-center gap-1.5 shrink-0">
+            {mainSession && streamingSessionId === mainSession.id && (
+              <span
+                title="正在回复中"
+                className="w-2 h-2 rounded-full animate-soft-breathe"
+                style={{ background: '#f59e0b' }}
+              />
+            )}
+            {projects.length > 0 && (
+              <span
+                className="text-[11px] px-2 py-0.5 rounded-full"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-muted)',
+                }}
+              >
+                游龙
+              </span>
+            )}
+          </span>
         </button>
 
         <button

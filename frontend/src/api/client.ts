@@ -62,6 +62,42 @@ export interface VaultFileItem {
   url: string
 }
 
+export interface VaultFolderItem {
+  scope: 'inbox' | 'artifacts' | 'archive'
+  path: string
+  name: string
+  file_count: number
+  size: number
+  updated_at: number
+}
+
+export interface VaultBrowseResponse {
+  scope: 'inbox' | 'artifacts' | 'archive'
+  dir: string
+  breadcrumbs: Array<{ name: string; dir: string }>
+  folders: VaultFolderItem[]
+  files: VaultFileItem[]
+  summary: {
+    counts: Record<'inbox' | 'artifacts' | 'archive', number>
+    total_files: number
+    total_size: number
+    archive_categories: Array<{ name: string; path: string; file_count: number; size: number }>
+  }
+}
+
+export interface ActiveRunSnapshot {
+  session_id: string
+  user_message_id: string
+  assistant_message_id: string
+  title: string
+  started_at: number
+  content: string
+  thinking: string
+  tools: ToolCallItem[]
+  finished: boolean
+  error?: string | null
+}
+
 export interface VaultFilesResponse {
   inbox: VaultFileItem[]
   artifacts: VaultFileItem[]
@@ -195,6 +231,8 @@ export interface ChatMessage {
 
 export type StreamEvent =
   | { type: 'meta'; user_message_id: string; assistant_message_id: string; title: string; delivered_at?: number }
+  | { type: 'snapshot'; run: ActiveRunSnapshot }
+  | { type: 'idle' }
   | { type: 'heartbeat'; elapsed_ms: number }
   | { type: 'thinking'; delta: string }
   | { type: 'tool'; id: string; name: string; status: string }
@@ -275,7 +313,13 @@ export const api = {
   deleteSession: (id: string) =>
     request<{ ok: boolean }>(`/portal-api/sessions/${id}`, { method: 'DELETE' }),
   getMessages: (id: string) =>
-    request<{ messages: ChatMessage[] }>(`/portal-api/sessions/${id}/messages`),
+    request<{ messages: ChatMessage[]; active_run?: ActiveRunSnapshot | null }>(
+      `/portal-api/sessions/${id}/messages`,
+    ),
+  stopSessionRun: (id: string) =>
+    request<{ ok: boolean; stopped: boolean }>(`/portal-api/sessions/${id}/stop`, {
+      method: 'POST',
+    }),
   uploadImage: async (file: File) => {
     const form = new FormData()
     form.append('file', file)
@@ -284,15 +328,60 @@ export const api = {
       body: form,
     })
   },
-  uploadVaultFile: async (file: File) => {
+  uploadVaultFile: async (
+    file: File,
+    opts?: { scope?: 'inbox' | 'artifacts' | 'archive'; dir?: string },
+  ) => {
     const form = new FormData()
     form.append('file', file)
-    return request<UploadedAttachment>('/portal-api/vault/upload', {
+    const qs = new URLSearchParams()
+    if (opts?.scope) qs.set('scope', opts.scope)
+    if (opts?.dir) qs.set('dir', opts.dir)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return request<UploadedAttachment>(`/portal-api/vault/upload${suffix}`, {
       method: 'POST',
       body: form,
     })
   },
   listVaultFiles: () => request<VaultFilesResponse>('/portal-api/vault/files'),
+  browseVault: (scope: 'inbox' | 'artifacts' | 'archive', dir = '') =>
+    request<VaultBrowseResponse>(
+      `/portal-api/vault/browse?scope=${encodeURIComponent(scope)}&dir=${encodeURIComponent(dir)}`,
+    ),
+  searchVault: (q: string) =>
+    request<{ files: VaultFileItem[]; folders: VaultFolderItem[] }>(
+      `/portal-api/vault/search?q=${encodeURIComponent(q)}`,
+    ),
+  createVaultFolder: (scope: 'inbox' | 'artifacts' | 'archive', dir: string, name: string) =>
+    request<{ ok: boolean; folder: { scope: string; path: string; name: string } }>(
+      '/portal-api/vault/folders',
+      {
+        method: 'POST',
+        body: JSON.stringify({ scope, dir, name }),
+      },
+    ),
+  deleteVaultFolder: (scope: 'inbox' | 'artifacts' | 'archive', folderPath: string) =>
+    request<{ ok: boolean }>(
+      `/portal-api/vault/folders/${scope}/${folderPath
+        .split('/')
+        .map((seg) => encodeURIComponent(seg))
+        .join('/')}`,
+      { method: 'DELETE' },
+    ),
+  moveVaultFile: (payload: {
+    from_scope: 'inbox' | 'artifacts' | 'archive'
+    from_path: string
+    to_scope: 'inbox' | 'artifacts' | 'archive'
+    to_dir: string
+    new_name?: string
+  }) =>
+    request<{ ok: boolean; file: { scope: string; path: string; name: string } }>(
+      '/portal-api/vault/move',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
   deleteVaultFile: (scope: 'inbox' | 'artifacts' | 'archive', filePath: string) =>
     request<{ ok: boolean }>(
       `/portal-api/vault/files/${scope}/${filePath
@@ -367,6 +456,41 @@ export const api = {
         body: JSON.stringify({ session_id }),
       },
     ),
+}
+
+export async function attachSessionStream(
+  sessionId: string,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/portal-api/sessions/${encodeURIComponent(sessionId)}/stream`, {
+    method: 'GET',
+    credentials: 'same-origin',
+    signal,
+  })
+  if (!res.ok || !res.body) return
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() || ''
+    for (const block of parts) {
+      for (const line of block.split('\n')) {
+        if (!line.startsWith('data:')) continue
+        const raw = line.slice(5).trim()
+        if (!raw) continue
+        try {
+          onEvent(JSON.parse(raw) as StreamEvent)
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
 }
 
 export async function streamChat(
