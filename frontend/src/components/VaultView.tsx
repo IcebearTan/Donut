@@ -304,7 +304,10 @@ export function VaultView({ user, onChanged }: Props) {
   const counts = summary?.counts || { archive: 0, artifacts: 0, inbox: 0 }
   const folders = trimmedQuery ? searchResult?.folders || [] : browseData?.folders || []
   const files = trimmedQuery ? searchResult?.files || [] : browseData?.files || []
-  const breadcrumbs = browseData?.breadcrumbs || [{ name: scopeLabel(scope), dir: '' }]
+  const breadcrumbs = [
+    { name: scopeLabel(scope), dir: '' },
+    ...(browseData?.breadcrumbs || []).filter((b) => Boolean(b.dir)),
+  ]
 
   const spaces: Array<{
     id: VaultScope
