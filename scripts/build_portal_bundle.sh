@@ -43,6 +43,9 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/frontend"
 cp -r "$PORTAL_DIR/backend" "$STAGE/backend"
 rm -rf "$STAGE/backend/data" "$STAGE/backend/__pycache__" "$STAGE/backend/app/__pycache__"
+if [ -d "$PORTAL_DIR/openclaw-skills" ]; then
+  cp -r "$PORTAL_DIR/openclaw-skills" "$STAGE/openclaw-skills"
+fi
 cp -r "$PORTAL_DIR/frontend/dist" "$STAGE/frontend/dist"
 tar -czf "$BUNDLE" -C "$STAGE" .
 ls -lh "$BUNDLE"

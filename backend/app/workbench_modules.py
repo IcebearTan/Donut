@@ -102,46 +102,56 @@ def _save_modules_config(
     os.replace(str(tmp), str(path))
 
 
+def parse_app_manifest(app_dir: Path, app_id: str) -> dict[str, Any] | None:
+    if app_id in RESERVED_MODULE_IDS or not APP_ID_RE.fullmatch(app_id):
+        return None
+    if not app_dir.is_dir() or app_dir.is_symlink():
+        return None
+    manifest_path = app_dir / "manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        return None
+    try:
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+    except Exception:
+        return None
+
+    entry = str(raw.get("entry") or "index.html").strip() or "index.html"
+    data_file = str(raw.get("data_file") or "data.json").strip() or "data.json"
+    has_html = (app_dir / entry).is_file() and not (app_dir / entry).is_symlink()
+    template = str(raw.get("template") or "").strip().lower()
+    engine = str(raw.get("engine") or "").strip().lower()
+    if engine not in ("template", "html"):
+        engine = (
+            "template"
+            if template in ("checklist", "table", "cards", "markdown")
+            else ("html" if has_html else "template")
+        )
+    if engine == "template" and template not in ("checklist", "table", "cards", "markdown"):
+        template = "checklist"
+
+    return {
+        "id": app_id,
+        "kind": engine,
+        "template": template if engine == "template" else None,
+        "name": str(raw.get("name") or app_id).strip()[:40] or app_id,
+        "description": str(raw.get("description") or "").strip()[:160],
+        "icon": str(raw.get("icon") or ("code" if engine == "html" else "puzzle")).strip()[:32],
+        "entry": entry,
+        "data_file": data_file,
+        "removable": True,
+        "default_enabled": bool(raw.get("enabled", True)),
+    }
+
+
 def _scan_micro_app_manifests(user_id: str) -> list[dict[str, Any]]:
     apps_root = _get_apps_root(user_id).resolve()
     discovered: list[dict[str, Any]] = []
     for child in sorted(apps_root.iterdir(), key=lambda p: p.name.lower()):
-        if not child.is_dir() or child.is_symlink():
-            continue
-        app_id = child.name
-        if app_id in RESERVED_MODULE_IDS or not APP_ID_RE.fullmatch(app_id):
-            continue
-        manifest_path = child / "manifest.json"
-        if not manifest_path.is_file() or manifest_path.is_symlink():
-            continue
-        try:
-            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(raw, dict):
-                continue
-        except Exception:
-            continue
-
-        entry = str(raw.get("entry") or "index.html").strip()
-        has_html = (child / entry).is_file()
-        template = str(raw.get("template") or "").strip().lower()
-        engine = str(raw.get("engine") or "").strip().lower()
-        if engine not in ("template", "html"):
-            engine = "template" if template in ("checklist", "table", "cards", "markdown") else ("html" if has_html else "template")
-        if engine == "template" and template not in ("checklist", "table", "cards", "markdown"):
-            template = "checklist"
-
-        discovered.append(
-            {
-                "id": app_id,
-                "kind": engine,
-                "template": template if engine == "template" else None,
-                "name": str(raw.get("name") or app_id).strip()[:40] or app_id,
-                "description": str(raw.get("description") or "").strip()[:160],
-                "icon": str(raw.get("icon") or ("code" if engine == "html" else "puzzle")).strip()[:32],
-                "removable": True,
-                "default_enabled": bool(raw.get("enabled", True)),
-            }
-        )
+        parsed = parse_app_manifest(child, child.name)
+        if parsed:
+            discovered.append(parsed)
     return discovered
 
 

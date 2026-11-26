@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from .auth import get_current_user
-from .reimbursement import (
-    build_reimbursement_export_zip,
-    create_reimbursement,
-    delete_reimbursement,
-    list_reimbursements,
-    update_reimbursement,
+from .reimbursement_routes import router as reimbursement_router
+from .workbench_apps import (
+    delete_user_app,
+    get_user_app_data,
+    get_user_app_detail,
+    get_user_app_html,
+    save_user_app_data,
 )
 from .workbench_focus import (
     add_focus_item,
@@ -25,11 +26,7 @@ from .workbench_focus import (
 from .workbench_modules import list_workbench_modules, update_workbench_modules
 
 router = APIRouter(prefix="/portal-api/workbench", tags=["workbench"])
-
-
-# ---------------------------------------------------------------------------
-# Core 1: Today's Focus (Zero external dependency, per-user isolated)
-# ---------------------------------------------------------------------------
+router.include_router(reimbursement_router)
 
 
 class FocusExternalLinkPayload(BaseModel):
@@ -122,11 +119,6 @@ def api_update_focus_links(
     )
 
 
-# ---------------------------------------------------------------------------
-# Per-User Workbench Modules Registry & Ordering
-# ---------------------------------------------------------------------------
-
-
 class WorkbenchModuleEntry(BaseModel):
     id: str = Field(..., min_length=1, max_length=64)
     enabled: Optional[bool] = None
@@ -150,87 +142,42 @@ def api_update_workbench_modules(
     )
 
 
-# ---------------------------------------------------------------------------
-# Built-in Optional Plugin 1: Local Reimbursement Ledger
-# ---------------------------------------------------------------------------
+class MicroAppDataPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
-class ReimbursementPayload(BaseModel):
-    spend_date: str = Field(default="", max_length=32)
-    title: str = Field(..., min_length=1, max_length=160)
-    platform: str = Field(default="", max_length=64)
-    amount: float = 0.0
-    has_invoice: str = Field(default="有", max_length=32)
-    has_order: str = Field(default="有", max_length=32)
-    has_payment: str = Field(default="有", max_length=32)
-    material_status: str = Field(default="齐全", max_length=32)
-    claim_status: str = Field(default="已整理-未报销", max_length=32)
-    note: str = Field(default="", max_length=500)
-    attachment_path: str = Field(default="", max_length=400)
-
-
-class ReimbursementPatchPayload(BaseModel):
-    expected_fingerprint: Optional[str] = None
-    spend_date: Optional[str] = Field(default=None, max_length=32)
-    title: Optional[str] = Field(default=None, max_length=160)
-    platform: Optional[str] = Field(default=None, max_length=64)
-    amount: Optional[float] = None
-    has_invoice: Optional[str] = Field(default=None, max_length=32)
-    has_order: Optional[str] = Field(default=None, max_length=32)
-    has_payment: Optional[str] = Field(default=None, max_length=32)
-    material_status: Optional[str] = Field(default=None, max_length=32)
-    claim_status: Optional[str] = Field(default=None, max_length=32)
-    note: Optional[str] = Field(default=None, max_length=500)
-    attachment_path: Optional[str] = Field(default=None, max_length=400)
-
-
-class ReimbursementExportRequest(BaseModel):
-    row_indices: list[int] = Field(default_factory=list)
-
-
-@router.get("/reimbursements")
-def api_list_reimbursements(user: dict = Depends(get_current_user)) -> dict[str, Any]:
-    return list_reimbursements(user["id"])
-
-
-@router.post("/reimbursements")
-def api_create_reimbursement(
-    body: ReimbursementPayload, user: dict = Depends(get_current_user)
+@router.get("/apps/{app_id}")
+def api_get_micro_app(
+    app_id: str, user: dict = Depends(get_current_user)
 ) -> dict[str, Any]:
-    item = create_reimbursement(user["id"], body.model_dump())
-    return {"ok": True, "item": item}
+    return get_user_app_detail(user["id"], app_id)
 
 
-@router.patch("/reimbursements/{row_index}")
-def api_update_reimbursement(
-    row_index: int,
-    body: ReimbursementPatchPayload,
+@router.get("/apps/{app_id}/data")
+def api_get_micro_app_data(
+    app_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    return get_user_app_data(user["id"], app_id)
+
+
+@router.put("/apps/{app_id}/data")
+def api_save_micro_app_data(
+    app_id: str,
+    body: MicroAppDataPayload,
     user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
-    item = update_reimbursement(
-        user["id"], row_index, body.model_dump(exclude_unset=True)
-    )
-    return {"ok": True, "item": item}
+    return save_user_app_data(user["id"], app_id, body.data)
 
 
-@router.delete("/reimbursements/{row_index}")
-def api_delete_reimbursement(
-    row_index: int,
-    fp: Optional[str] = None,
-    user: dict = Depends(get_current_user),
+@router.get("/apps/{app_id}/html")
+def api_get_micro_app_html(
+    app_id: str, user: dict = Depends(get_current_user)
 ) -> dict[str, Any]:
-    return delete_reimbursement(user["id"], row_index, expected_fingerprint=fp)
+    return get_user_app_html(user["id"], app_id)
 
 
-@router.post("/reimbursements/export-zip")
-def api_export_reimbursements_zip(
-    body: ReimbursementExportRequest, user: dict = Depends(get_current_user)
-) -> Response:
-    raw_zip = build_reimbursement_export_zip(
-        user["id"], body.row_indices if body.row_indices else None
-    )
-    return Response(
-        content=raw_zip,
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="reimbursement_bundle.zip"'},
-    )
+@router.delete("/apps/{app_id}")
+def api_delete_micro_app(
+    app_id: str, user: dict = Depends(get_current_user)
+) -> dict[str, Any]:
+    return delete_user_app(user["id"], app_id)

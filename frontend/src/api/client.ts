@@ -203,6 +203,17 @@ export interface WorkbenchModulesResponse {
   modules: WorkbenchModuleItem[]
 }
 
+export interface MicroAppDetailResponse {
+  app: WorkbenchModuleItem
+  data: Record<string, unknown>
+}
+
+export interface MicroAppHtmlResponse {
+  app: WorkbenchModuleItem
+  html: string
+  data: Record<string, unknown>
+}
+
 export interface VaultFileItem {
   scope: 'inbox' | 'artifacts' | 'archive'
   path: string
@@ -714,6 +725,28 @@ export const api = {
     request<WorkbenchModulesResponse>('/portal-api/workbench/modules', {
       method: 'PUT',
       body: JSON.stringify({ items }),
+    }),
+  getMicroApp: (appId: string) =>
+    request<MicroAppDetailResponse>(`/portal-api/workbench/apps/${encodeURIComponent(appId)}`),
+  getMicroAppData: (appId: string) =>
+    request<{ data: Record<string, unknown> }>(
+      `/portal-api/workbench/apps/${encodeURIComponent(appId)}/data`,
+    ),
+  saveMicroAppData: (appId: string, data: Record<string, unknown>) =>
+    request<{ ok: boolean; data: Record<string, unknown> }>(
+      `/portal-api/workbench/apps/${encodeURIComponent(appId)}/data`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ data }),
+      },
+    ),
+  getMicroAppHtml: (appId: string) =>
+    request<MicroAppHtmlResponse>(
+      `/portal-api/workbench/apps/${encodeURIComponent(appId)}/html`,
+    ),
+  deleteMicroApp: (appId: string) =>
+    request<{ ok: boolean }>(`/portal-api/workbench/apps/${encodeURIComponent(appId)}`, {
+      method: 'DELETE',
     }),
   getAnnualActivity: (year?: number) =>
     request<AnnualActivityResponse>(

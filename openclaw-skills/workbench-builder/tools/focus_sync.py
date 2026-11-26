@@ -27,9 +27,14 @@ def resolve_focus_path(vault_dir: str | None) -> Path:
     if vault_dir:
         base = Path(vault_dir).expanduser().resolve()
     else:
+        script_vault = Path(__file__).resolve().parent.parent / "vault"
         cwd_vault = Path.cwd() / "vault"
-        home_vault = Path.home() / ".openclaw" / "workspace" / "vault"
-        base = cwd_vault if cwd_vault.exists() else home_vault
+        if script_vault.exists():
+            base = script_vault
+        elif cwd_vault.exists():
+            base = cwd_vault
+        else:
+            raise SystemExit("Cannot locate workspace vault directory; pass --vault-dir explicitly")
     return base / "workbench" / "focus.json"
 
 

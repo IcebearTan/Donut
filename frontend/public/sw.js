@@ -1,5 +1,5 @@
 // Donut PWA Service Worker — fast shell caching with zero interference to SSE & private APIs
-const CACHE_NAME = 'donut-portal-shell-v20'
+const CACHE_NAME = 'donut-portal-shell-v21'
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',

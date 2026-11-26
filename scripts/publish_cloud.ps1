@@ -49,6 +49,19 @@ tar -xzf /tmp/portal-release.tar.gz -C /opt/couple-space/portal
 rm -f /tmp/portal-release.tar.gz
 chown -R donut:donut /opt/couple-space/portal
 
+# Sync OpenClaw workbench-builder skill & tools to both user workspaces (isolated & non-destructive)
+if [ -d /opt/couple-space/portal/openclaw-skills/workbench-builder ]; then
+  for ws in /home/donut/.openclaw/workspace /home/donut/.openclaw/workspace-her; do
+    if [ -d "$ws" ]; then
+      mkdir -p "$ws/skills/workbench-builder" "$ws/tools"
+      cp -f /opt/couple-space/portal/openclaw-skills/workbench-builder/SKILL.md "$ws/skills/workbench-builder/SKILL.md"
+      cp -f /opt/couple-space/portal/openclaw-skills/workbench-builder/tools/*.py "$ws/tools/"
+      chmod +x "$ws/tools/"*.py
+      chown -R donut:donut "$ws/skills/workbench-builder" "$ws/tools"
+    fi
+  done
+fi
+
 su - donut -c '/opt/couple-space/portal-venv/bin/pip install --quiet -i https://pypi.tuna.tsinghua.edu.cn/simple -r /opt/couple-space/portal/backend/requirements.txt'
 systemctl restart couple-portal.service
 sleep 2

@@ -9,6 +9,7 @@ import { CronView } from './CronView'
 import { ReimbursementTab } from './ReimbursementTab'
 import { FocusTab } from './workbench/FocusTab'
 import { WorkbenchIcon } from './workbench/iconMap'
+import { MicroAppHost } from './workbench/MicroAppHost'
 import { ModuleManagerModal } from './workbench/ModuleManagerModal'
 
 interface Props {
@@ -109,6 +110,17 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
     }
   }
 
+  async function handleDeleteMicroApp(appId: string) {
+    try {
+      await api.deleteMicroApp(appId)
+      await loadModules()
+      if (tab === appId) switchTab('focus')
+      onToast('微应用已删除')
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : '删除微应用失败')
+    }
+  }
+
   const activeExtension = enabledExtensions.find((m) => m.id === tab) || null
 
   return (
@@ -203,6 +215,9 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
         {tab === 'reimbursements' && activeExtension && (
           <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
         )}
+        {activeExtension && tab !== 'reimbursements' && (
+          <MicroAppHost module={activeExtension} onToast={onToast} />
+        )}
       </div>
 
       {managerOpen && (
@@ -211,6 +226,7 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
           modules={extModules}
           saving={savingMods}
           onSaveModules={handleSaveModules}
+          onDeleteMicroApp={handleDeleteMicroApp}
           onClose={() => setManagerOpen(false)}
         />
       )}
