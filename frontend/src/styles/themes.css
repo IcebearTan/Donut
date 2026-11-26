@@ -50,6 +50,12 @@ html[data-theme="light"] {
   --danger: #dc2626;
   --success: #16a34a;
 
+  --heat-0: #efefeb;
+  --heat-1: #bbf7d0;
+  --heat-2: #4ade80;
+  --heat-3: #16a34a;
+  --heat-4: #166534;
+
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.055);
   --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.08);
@@ -98,6 +104,12 @@ html[data-theme="dark"] {
   --accent-soft: #2c2c2c;
   --danger: #f87171;
   --success: #4ade80;
+
+  --heat-0: #2b2b2f;
+  --heat-1: #14532d;
+  --heat-2: #15803d;
+  --heat-3: #22c55e;
+  --heat-4: #86efac;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
   --shadow-card: 0 10px 24px rgba(0, 0, 0, 0.36);

@@ -39,6 +39,17 @@ export interface SkillItem {
   name: string
   description: string
   updated_at: number
+  size?: number
+}
+
+export interface SkillDetail extends SkillItem {
+  content: string
+}
+
+export interface ToolScriptItem {
+  name: string
+  size: number
+  updated_at: number
 }
 
 export interface VaultFileItem {
@@ -55,6 +66,36 @@ export interface VaultFilesResponse {
   inbox: VaultFileItem[]
   artifacts: VaultFileItem[]
   archive: VaultFileItem[]
+  archive_folders?: string[]
+  total_size?: number
+}
+
+export interface ActivityDayItem {
+  date: string
+  turns: number
+  tasks: number
+  score: number
+  level: 0 | 1 | 2 | 3 | 4
+  topics: string[]
+}
+
+export interface AnnualActivityResponse {
+  year: number
+  today: string
+  available_years: number[]
+  summary: {
+    year_turns: number
+    year_tasks: number
+    active_days: number
+    current_streak: number
+    longest_streak: number
+    companion_days: number
+    total_sessions: number
+    projects_count: number
+    skills_count: number
+    vault_files_count: number
+  }
+  days: Record<string, ActivityDayItem>
 }
 
 export interface UploadedAttachment {
@@ -194,7 +235,11 @@ export const api = {
   logout: () => request<{ ok: boolean }>('/portal-api/auth/logout', { method: 'POST' }),
   me: () =>
     request<{ user: UserProfile; agent_id: string; apps: PortalAppItem[] }>('/portal-api/auth/me'),
-  updateProfile: (payload: { display_name?: string; assistant_name?: string }) =>
+  updateProfile: (payload: {
+    display_name?: string
+    assistant_name?: string
+    avatar_emoji?: string
+  }) =>
     request<{ user: UserProfile }>('/portal-api/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -256,7 +301,22 @@ export const api = {
         .join('/')}`,
       { method: 'DELETE' },
     ),
-  listSkills: () => request<{ skills: SkillItem[] }>('/portal-api/skills'),
+  listSkills: () => request<{ skills: SkillItem[]; tools?: ToolScriptItem[] }>('/portal-api/skills'),
+  getSkill: (id: string) =>
+    request<{ skill: SkillDetail }>(`/portal-api/skills/${encodeURIComponent(id)}`),
+  saveSkill: (id: string, content: string) =>
+    request<{ skill: SkillDetail }>(`/portal-api/skills/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  deleteSkill: (id: string) =>
+    request<{ ok: boolean }>(`/portal-api/skills/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  getAnnualActivity: (year?: number) =>
+    request<AnnualActivityResponse>(
+      year ? `/portal-api/activity/year?year=${year}` : '/portal-api/activity/year',
+    ),
   launchApp: (appId: string) =>
     request<{ url: string }>(`/portal-api/apps/${encodeURIComponent(appId)}/launch`),
   getPersona: () => request<PersonaData>('/portal-api/persona'),

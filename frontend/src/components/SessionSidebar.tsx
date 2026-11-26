@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   BookOpen,
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronRight,
@@ -25,7 +26,7 @@ import {
   X,
 } from 'lucide-react'
 import type { ChatSession, PortalAppItem, ProjectItem, UserProfile } from '../api/client'
-import type { VaultTab } from './VaultModal'
+import type { SettingsSection } from './ProfileSettingsView'
 
 interface Props {
   user: UserProfile
@@ -53,8 +54,9 @@ interface Props {
   onAutoTitleSession: (id: string) => Promise<void> | void
   onDeleteSession: (id: string) => Promise<void> | void
   onSetTheme: (theme: 'light' | 'dark') => void
-  onOpenSettings: (tab: 'persona' | 'account') => void
-  onOpenVault: (tab?: VaultTab) => void
+  onOpenSettings: (section: SettingsSection) => void
+  onOpenVault: () => void
+  onOpenSkills: () => void
   showInstallApp?: boolean
   onInstallApp?: () => void
   onLogout: () => void
@@ -111,6 +113,7 @@ export function SessionSidebar({
   onSetTheme,
   onOpenSettings,
   onOpenVault,
+  onOpenSkills,
   showInstallApp,
   onInstallApp,
   onLogout,
@@ -415,15 +418,31 @@ export function SessionSidebar({
         <button
           type="button"
           data-testid="open-vault-nav"
+          data-active={activeAppId === 'vault' ? 'true' : 'false'}
           onClick={() => {
-            onOpenVault('artifacts')
+            onOpenVault()
             if (isMobile) onCloseMobile()
           }}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
-          style={{ color: 'var(--text-secondary)' }}
+          style={{ color: activeAppId === 'vault' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
         >
           <FolderArchive size={17} className="shrink-0 opacity-80" />
-          <span>文件仓与技能</span>
+          <span>文件仓</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="open-skills-nav"
+          data-active={activeAppId === 'skills' ? 'true' : 'false'}
+          onClick={() => {
+            onOpenSkills()
+            if (isMobile) onCloseMobile()
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
+          style={{ color: activeAppId === 'skills' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+        >
+          <Sparkles size={17} className="shrink-0 opacity-80" />
+          <span>技能库</span>
         </button>
 
         {externalApps.map((app) => {
@@ -621,16 +640,32 @@ export function SessionSidebar({
           >
             <button
               type="button"
+              data-testid="menu-open-profile-overview"
               onClick={() => {
                 setMenuOpen(false)
-                onOpenSettings('persona')
+                onOpenSettings('overview')
+                if (isMobile) onCloseMobile()
+              }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
+              style={{ color: 'var(--text-primary)' }}
+            >
+              <CalendarDays size={15} className="shrink-0 opacity-75" />
+              <span>个人主页与活跃日历</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="menu-open-assistant-persona"
+              onClick={() => {
+                setMenuOpen(false)
+                onOpenSettings('assistant')
                 if (isMobile) onCloseMobile()
               }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] sidebar-row cursor-pointer text-left"
               style={{ color: 'var(--text-primary)' }}
             >
               <Sparkles size={15} className="shrink-0 opacity-75" />
-              <span>助手人设与定制</span>
+              <span>助手定制与人设</span>
             </button>
 
             <div

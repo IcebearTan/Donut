@@ -49,16 +49,21 @@ from .projects import (
     read_project_files,
     rebuild_projects_index,
 )
+from .activity import get_user_year_activity
 from .status import get_companion_status
 from .titler import generate_smart_title
 from .vault import (
+    delete_user_skill,
     ensure_user_vault,
     is_allowed_upload_ext,
     list_user_skills,
+    list_user_tools,
     list_user_vault_files,
+    read_user_skill,
     resolve_attachment_path,
     resolve_vault_file,
     sanitize_filename,
+    save_user_skill,
 )
 
 
@@ -85,6 +90,7 @@ class LoginRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=24)
     assistant_name: Optional[str] = Field(default=None, min_length=1, max_length=24)
+    avatar_emoji: Optional[str] = Field(default=None, min_length=1, max_length=8)
 
 
 class PasswordChangeRequest(BaseModel):
@@ -147,6 +153,7 @@ def update_profile(
     new_assistant = (
         body.assistant_name.strip() if body.assistant_name else user["assistant_name"]
     )
+    new_avatar = body.avatar_emoji.strip() if body.avatar_emoji else user["avatar_emoji"]
     with db_session() as conn:
         conflict = conn.execute(
             "SELECT id FROM users WHERE display_name = ? AND id != ?",
@@ -155,14 +162,15 @@ def update_profile(
         if conflict:
             raise HTTPException(status_code=409, detail="这个称呼已经被另一位占用了")
         conn.execute(
-            "UPDATE users SET display_name = ?, assistant_name = ? WHERE id = ?",
-            (new_display, new_assistant, user["id"]),
+            "UPDATE users SET display_name = ?, assistant_name = ?, avatar_emoji = ? WHERE id = ?",
+            (new_display, new_assistant, new_avatar, user["id"]),
         )
     return {
         "user": {
             **user,
             "display_name": new_display,
             "assistant_name": new_assistant,
+            "avatar_emoji": new_avatar,
         }
     }
 
@@ -879,9 +887,53 @@ def delete_vault_file(
     return {"ok": True}
 
 
+class SaveSkillRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=40000)
+
+
 @app.get("/portal-api/skills")
 def get_user_skills(user: dict = Depends(get_current_user)) -> dict:
-    return {"skills": list_user_skills(user["id"])}
+    return {
+        "skills": list_user_skills(user["id"]),
+        "tools": list_user_tools(user["id"]),
+    }
+
+
+@app.get("/portal-api/skills/{skill_id}")
+def get_user_skill_detail(skill_id: str, user: dict = Depends(get_current_user)) -> dict:
+    detail = read_user_skill(user["id"], skill_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="技能不存在")
+    return {"skill": detail}
+
+
+@app.put("/portal-api/skills/{skill_id}")
+def put_user_skill(
+    skill_id: str,
+    body: SaveSkillRequest,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    saved = save_user_skill(user["id"], skill_id, body.content)
+    if not saved:
+        raise HTTPException(
+            status_code=400,
+            detail="技能 ID 仅支持小写字母、数字、连字符或下划线（如 weekly-report）",
+        )
+    return {"skill": saved}
+
+
+@app.delete("/portal-api/skills/{skill_id}")
+def remove_user_skill(skill_id: str, user: dict = Depends(get_current_user)) -> dict:
+    if not delete_user_skill(user["id"], skill_id):
+        raise HTTPException(status_code=404, detail="技能不存在")
+    return {"ok": True}
+
+
+@app.get("/portal-api/activity/year")
+def get_annual_activity(
+    year: Optional[int] = None, user: dict = Depends(get_current_user)
+) -> dict:
+    return get_user_year_activity(user["id"], year=year)
 
 
 @app.get("/portal-api/uploads/{filename}")

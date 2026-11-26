@@ -82,9 +82,10 @@ def resolve_vault_file(user_id: str, scope: str, rel_path: str) -> Path | None:
     return target
 
 
-def list_user_vault_files(user_id: str) -> dict[str, list[dict[str, Any]]]:
+def list_user_vault_files(user_id: str) -> dict[str, Any]:
     dirs = ensure_user_vault(user_id)
-    out: dict[str, list[dict[str, Any]]] = {s: [] for s in VAULT_SCOPES}
+    out: dict[str, Any] = {s: [] for s in VAULT_SCOPES}
+    total_size = 0
 
     for scope in VAULT_SCOPES:
         base = dirs[scope]
@@ -94,6 +95,7 @@ def list_user_vault_files(user_id: str) -> dict[str, list[dict[str, Any]]]:
                 continue
             rel = p.relative_to(base).as_posix()
             st = p.stat()
+            total_size += st.st_size
             items.append(
                 {
                     "scope": scope,
@@ -106,7 +108,16 @@ def list_user_vault_files(user_id: str) -> dict[str, list[dict[str, Any]]]:
                 }
             )
         items.sort(key=lambda x: x["updated_at"], reverse=True)
-        out[scope] = items[:80]
+        out[scope] = items[:200]
+
+    # Collect archive subdirectories (including newly scaffolded project folders!)
+    archive_base = dirs["archive"]
+    archive_folders: list[str] = []
+    if archive_base.exists():
+        for d in sorted(archive_base.rglob("*")):
+            if d.is_dir() and not d.name.startswith("."):
+                archive_folders.append(d.relative_to(archive_base).as_posix())
+    out["archive_folders"] = archive_folders
 
     # Also surface any legacy files in generated/<uid> under artifacts if not already present
     legacy_gen = GENERATED_DIR / user_id
@@ -116,6 +127,7 @@ def list_user_vault_files(user_id: str) -> dict[str, list[dict[str, Any]]]:
             if not p.is_file() or p.name.startswith(".") or p.name in seen:
                 continue
             st = p.stat()
+            total_size += st.st_size
             out["artifacts"].append(
                 {
                     "scope": "artifacts",
@@ -129,7 +141,25 @@ def list_user_vault_files(user_id: str) -> dict[str, list[dict[str, Any]]]:
             )
         out["artifacts"].sort(key=lambda x: x["updated_at"], reverse=True)
 
+    out["total_size"] = total_size
     return out
+
+
+_SKILL_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,48}$")
+
+
+def _parse_skill_frontmatter(slug: str, text: str) -> tuple[str, str]:
+    name = slug
+    desc = ""
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            for ln in parts[1].splitlines():
+                if ln.lower().startswith("name:"):
+                    name = ln.split(":", 1)[1].strip().strip('"').strip("'") or slug
+                elif ln.lower().startswith("description:"):
+                    desc = ln.split(":", 1)[1].strip().strip('"').strip("'")
+    return name, desc
 
 
 def list_user_skills(user_id: str) -> list[dict[str, Any]]:
@@ -145,17 +175,7 @@ def list_user_skills(user_id: str) -> list[dict[str, Any]]:
             text = skill_md.read_text(encoding="utf-8")
         except Exception:
             continue
-        name = slug
-        desc = ""
-        # Parse lightweight YAML frontmatter
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                for ln in parts[1].splitlines():
-                    if ln.lower().startswith("name:"):
-                        name = ln.split(":", 1)[1].strip().strip('"').strip("'") or slug
-                    elif ln.lower().startswith("description:"):
-                        desc = ln.split(":", 1)[1].strip().strip('"').strip("'")
+        name, desc = _parse_skill_frontmatter(slug, text)
         st = skill_md.stat()
         result.append(
             {
@@ -163,9 +183,85 @@ def list_user_skills(user_id: str) -> list[dict[str, Any]]:
                 "name": name,
                 "description": desc,
                 "updated_at": int(st.st_mtime * 1000),
+                "size": st.st_size,
             }
         )
+    result.sort(key=lambda x: x["updated_at"], reverse=True)
     return result
+
+
+def read_user_skill(user_id: str, skill_id: str) -> dict[str, Any] | None:
+    if not _SKILL_SLUG_RE.fullmatch(skill_id):
+        return None
+    ws = get_agent_workspace(user_id)
+    skill_md = ws / "skills" / skill_id / "SKILL.md"
+    if not skill_md.exists() or not skill_md.is_file():
+        return None
+    text = skill_md.read_text(encoding="utf-8")
+    name, desc = _parse_skill_frontmatter(skill_id, text)
+    st = skill_md.stat()
+    return {
+        "id": skill_id,
+        "name": name,
+        "description": desc,
+        "content": text,
+        "updated_at": int(st.st_mtime * 1000),
+        "size": st.st_size,
+    }
+
+
+def save_user_skill(user_id: str, skill_id: str, content: str) -> dict[str, Any] | None:
+    if not _SKILL_SLUG_RE.fullmatch(skill_id):
+        return None
+    ws = get_agent_workspace(user_id)
+    skill_dir = ws / "skills" / skill_id
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_md = skill_dir / "SKILL.md"
+    clean = content.rstrip() + "\n"
+    skill_md.write_text(clean, encoding="utf-8")
+    name, desc = _parse_skill_frontmatter(skill_id, clean)
+    st = skill_md.stat()
+    return {
+        "id": skill_id,
+        "name": name,
+        "description": desc,
+        "content": clean,
+        "updated_at": int(st.st_mtime * 1000),
+        "size": st.st_size,
+    }
+
+
+def delete_user_skill(user_id: str, skill_id: str) -> bool:
+    if not _SKILL_SLUG_RE.fullmatch(skill_id):
+        return False
+    ws = get_agent_workspace(user_id)
+    skill_dir = ws / "skills" / skill_id
+    if not skill_dir.exists() or not skill_dir.is_dir():
+        return False
+    import shutil
+
+    shutil.rmtree(skill_dir, ignore_errors=False)
+    return True
+
+
+def list_user_tools(user_id: str) -> list[dict[str, Any]]:
+    ws = get_agent_workspace(user_id)
+    tools_dir = ws / "tools"
+    if not tools_dir.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for p in sorted(tools_dir.iterdir()):
+        if not p.is_file() or p.name.startswith("."):
+            continue
+        st = p.stat()
+        out.append(
+            {
+                "name": p.name,
+                "size": st.st_size,
+                "updated_at": int(st.st_mtime * 1000),
+            }
+        )
+    return out
 
 
 def resolve_attachment_path(user_id: str, file_id: str) -> tuple[Path | None, str, bool]:

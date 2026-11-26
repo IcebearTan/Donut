@@ -15,10 +15,11 @@ import { LoginView } from './components/LoginView'
 import { SessionSidebar } from './components/SessionSidebar'
 import { ChatView } from './components/ChatView'
 import { CompanionPanel, type LiveStreamState } from './components/CompanionPanel'
-import { SettingsModal } from './components/SettingsModal'
 import { ProjectModal } from './components/ProjectModal'
 import { PwaInstallModal } from './components/PwaInstallModal'
-import { VaultModal, type VaultTab } from './components/VaultModal'
+import { VaultView } from './components/VaultView'
+import { SkillsView } from './components/SkillsView'
+import { ProfileSettingsView, type SettingsSection } from './components/ProfileSettingsView'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -77,11 +78,7 @@ export function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileCompanionOpen, setMobileCompanionOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'persona' | 'account' | null>(null)
-  const [vaultModal, setVaultModal] = useState<{ open: boolean; tab: VaultTab }>({
-    open: false,
-    tab: 'artifacts',
-  })
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview')
   const [projectModal, setProjectModal] = useState<{ open: boolean; projectId: string | null }>({
     open: false,
     projectId: null,
@@ -836,8 +833,12 @@ export function App() {
         onAutoTitleSession={handleAutoTitleSession}
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
-        onOpenSettings={(tab) => setSettingsTab(tab)}
-        onOpenVault={(tab = 'artifacts') => setVaultModal({ open: true, tab })}
+        onOpenSettings={(sec) => {
+          setSettingsSection(sec)
+          setActiveAppId('settings')
+        }}
+        onOpenVault={() => setActiveAppId('vault')}
+        onOpenSkills={() => setActiveAppId('skills')}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
@@ -865,9 +866,9 @@ export function App() {
         )}
 
         {/* Native-grade mobile top bar:
-            - Chat view: taller, mathematically centered larger Donut hero avatar, borderless top-down gradient fade
-            - External app (I-land): compact solid bar so iframe HUD is never overlapped */}
-        {activeExternalApp ? (
+            - Chat view ('donut'): taller, mathematically centered larger Donut hero avatar, borderless top-down gradient fade
+            - Full pages ('vault' / 'skills' / 'settings' / external app): crisp borderless/minimal header with page title */}
+        {activeAppId !== 'donut' ? (
           <div
             className="lg:hidden safe-pt shrink-0 relative z-10"
             style={{
@@ -888,10 +889,22 @@ export function App() {
               </button>
 
               <div className="justify-self-center flex items-center gap-1.5 min-w-0">
-                <span className="text-base leading-none shrink-0">{activeExternalApp.emoji}</span>
-                <span className="text-[14.5px] font-semibold tracking-tight truncate">
-                  {activeExternalApp.shortName}
-                </span>
+                {activeExternalApp ? (
+                  <>
+                    <span className="text-base leading-none shrink-0">{activeExternalApp.emoji}</span>
+                    <span className="text-[14.5px] font-semibold tracking-tight truncate">
+                      {activeExternalApp.shortName}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-[15px] font-semibold tracking-tight truncate">
+                    {activeAppId === 'vault'
+                      ? '我的文件仓'
+                      : activeAppId === 'skills'
+                        ? '技能库'
+                        : '个人主页与设置'}
+                  </span>
+                )}
               </div>
 
               <div />
@@ -991,6 +1004,31 @@ export function App() {
               </div>
             )}
           </div>
+        ) : activeAppId === 'vault' ? (
+          <VaultView user={user} onChanged={() => refreshStatus()} />
+        ) : activeAppId === 'skills' ? (
+          <SkillsView
+            user={user}
+            onTeachInChat={() => handleSelectMainSession()}
+            onChanged={() => refreshStatus()}
+          />
+        ) : activeAppId === 'settings' ? (
+          <ProfileSettingsView
+            user={user}
+            theme={theme}
+            initialSection={settingsSection}
+            showInstallApp={!standalone}
+            onSetTheme={setTheme}
+            onUserUpdated={(u) => {
+              setUser(u)
+              refreshStatus()
+              showToast('个人与助手设定已更新')
+            }}
+            onNavigateVault={() => setActiveAppId('vault')}
+            onNavigateSkills={() => setActiveAppId('skills')}
+            onInstallApp={() => setPwaModalOpen(true)}
+            onLogout={handleLogout}
+          />
         ) : (
           <div className="flex-1 flex min-w-0 min-h-0 relative">
             <ChatView
@@ -1021,26 +1059,10 @@ export function App() {
               onEditProject={(pid) => setProjectModal({ open: true, projectId: pid })}
               onSelectProject={handleSelectProject}
               onDistillActive={handleDistillActiveProject}
-              onOpenVault={(tab = 'artifacts') => setVaultModal({ open: true, tab })}
             />
           </div>
         )}
       </div>
-
-      {settingsTab && (
-        <SettingsModal
-          user={user}
-          theme={theme}
-          initialTab={settingsTab}
-          onSetTheme={setTheme}
-          onUserUpdated={(u) => {
-            setUser(u)
-            refreshStatus()
-            showToast('助手设定已更新')
-          }}
-          onClose={() => setSettingsTab(null)}
-        />
-      )}
 
       {projectModal.open && (
         <ProjectModal
@@ -1091,15 +1113,6 @@ export function App() {
           isSecureOrigin={window.isSecureContext}
           onTriggerNativeInstall={handleTriggerNativePwaInstall}
           onClose={() => setPwaModalOpen(false)}
-        />
-      )}
-
-      {vaultModal.open && (
-        <VaultModal
-          user={user}
-          initialTab={vaultModal.tab}
-          onChanged={() => refreshStatus()}
-          onClose={() => setVaultModal((prev) => ({ ...prev, open: false }))}
         />
       )}
     </div>

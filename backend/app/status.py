@@ -256,7 +256,11 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
 
     skills = list_user_skills(uid)
     vault_map = list_user_vault_files(uid)
-    vault_total = sum(len(v) for v in vault_map.values())
+    vault_total = (
+        len(vault_map.get("inbox", []))
+        + len(vault_map.get("artifacts", []))
+        + len(vault_map.get("archive", []))
+    )
 
     return {
         "gateway_online": gateway_online,

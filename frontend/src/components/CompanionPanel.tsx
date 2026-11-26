@@ -12,7 +12,6 @@ import {
   X,
 } from 'lucide-react'
 import type { CompanionStatus, ProjectItem, UserProfile } from '../api/client'
-import type { VaultTab } from './VaultModal'
 
 export interface LiveStreamState {
   streaming: boolean
@@ -37,7 +36,6 @@ interface Props {
   onEditProject: (projectId: string) => void
   onSelectProject: (projectId: string) => void
   onDistillActive: () => void
-  onOpenVault: (tab?: VaultTab) => void
 }
 
 function formatRelativeTime(ts: number | null): string {
