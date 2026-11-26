@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   Compass,
   CornerUpLeft,
   Download,
@@ -58,6 +59,7 @@ interface Props {
   onOpenSettings: (section: SettingsSection) => void
   onOpenVault: () => void
   onOpenSkills: () => void
+  onOpenCron: () => void
   showInstallApp?: boolean
   onInstallApp?: () => void
   onLogout: () => void
@@ -116,6 +118,7 @@ export function SessionSidebar({
   onOpenSettings,
   onOpenVault,
   onOpenSkills,
+  onOpenCron,
   showInstallApp,
   onInstallApp,
   onLogout,
@@ -464,6 +467,21 @@ export function SessionSidebar({
         >
           <Sparkles size={17} className="shrink-0 opacity-80" />
           <span>技能库</span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="open-cron-nav"
+          data-active={activeAppId === 'cron' ? 'true' : 'false'}
+          onClick={() => {
+            onOpenCron()
+            if (isMobile) onCloseMobile()
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14.5px] font-medium sidebar-row cursor-pointer text-left"
+          style={{ color: activeAppId === 'cron' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+        >
+          <Clock size={17} className="shrink-0 opacity-80" />
+          <span>定时任务</span>
         </button>
 
         {externalApps.map((app) => {

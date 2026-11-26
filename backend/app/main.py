@@ -50,6 +50,14 @@ from .projects import (
     rebuild_projects_index,
 )
 from .activity import get_user_year_activity
+from .cron_service import (
+    create_user_cron_job,
+    delete_user_cron_job,
+    get_user_cron_runs,
+    list_user_cron_jobs,
+    run_user_cron_job,
+    update_user_cron_job,
+)
 from .runs import cancel_active_run, get_active_run, start_detached_run
 from .status import get_companion_status
 from .titler import generate_smart_title
@@ -1234,6 +1242,84 @@ async def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class CreateCronJobRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    message: str = Field(..., min_length=1, max_length=8000)
+    schedule: dict[str, Any]
+    description: str = Field(default="", max_length=300)
+    enabled: bool = True
+    delete_after_run: bool = False
+
+
+class UpdateCronJobRequest(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=80)
+    message: Optional[str] = Field(default=None, max_length=8000)
+    schedule: Optional[dict[str, Any]] = None
+    description: Optional[str] = Field(default=None, max_length=300)
+    enabled: Optional[bool] = None
+    delete_after_run: Optional[bool] = None
+
+
+@app.get("/portal-api/cron/jobs")
+async def api_list_cron_jobs(user: dict = Depends(get_current_user)) -> dict:
+    return await list_user_cron_jobs(user["id"])
+
+
+@app.post("/portal-api/cron/jobs")
+async def api_create_cron_job(
+    body: CreateCronJobRequest, user: dict = Depends(get_current_user)
+) -> dict:
+    job = await create_user_cron_job(
+        user_id=user["id"],
+        name=body.name,
+        message=body.message,
+        schedule=body.schedule,
+        description=body.description,
+        enabled=body.enabled,
+        delete_after_run=body.delete_after_run,
+    )
+    return {"ok": True, "job": job}
+
+
+@app.patch("/portal-api/cron/jobs/{job_id}")
+async def api_update_cron_job(
+    job_id: str, body: UpdateCronJobRequest, user: dict = Depends(get_current_user)
+) -> dict:
+    job = await update_user_cron_job(
+        user_id=user["id"],
+        job_id=job_id,
+        name=body.name,
+        description=body.description,
+        message=body.message,
+        schedule=body.schedule,
+        enabled=body.enabled,
+        delete_after_run=body.delete_after_run,
+    )
+    return {"ok": True, "job": job}
+
+
+@app.delete("/portal-api/cron/jobs/{job_id}")
+async def api_delete_cron_job(
+    job_id: str, user: dict = Depends(get_current_user)
+) -> dict:
+    return await delete_user_cron_job(user["id"], job_id)
+
+
+@app.post("/portal-api/cron/jobs/{job_id}/run")
+async def api_run_cron_job(
+    job_id: str, user: dict = Depends(get_current_user)
+) -> dict:
+    return await run_user_cron_job(user["id"], job_id)
+
+
+@app.get("/portal-api/cron/jobs/{job_id}/runs")
+async def api_get_cron_runs(
+    job_id: str, limit: int = 20, user: dict = Depends(get_current_user)
+) -> dict:
+    runs = await get_user_cron_runs(user["id"], job_id, limit=limit)
+    return {"runs": runs}
 
 
 @app.get("/portal-api/status")

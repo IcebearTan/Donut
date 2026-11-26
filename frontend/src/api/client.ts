@@ -52,6 +52,55 @@ export interface ToolScriptItem {
   updated_at: number
 }
 
+export type CronSchedule =
+  | { kind: 'cron'; expr: string; tz?: string }
+  | { kind: 'every'; everyMs: number; anchorMs?: number }
+  | { kind: 'at'; at: string }
+
+export interface CronJobItem {
+  id: string
+  name: string
+  description: string
+  enabled: boolean
+  is_system: boolean
+  agent_id: string
+  schedule: CronSchedule
+  message: string
+  payload_kind: string
+  session_target: string
+  delete_after_run: boolean
+  created_at?: number | null
+  updated_at?: number | null
+  next_run_at?: number | null
+  last_run_at?: number | null
+  last_status?: string | null
+  last_duration_ms?: number | null
+  last_error?: string | null
+  delivery_warning?: string | null
+  consecutive_errors: number
+}
+
+export interface CronSchedulerStatus {
+  enabled: boolean
+  triggers_enabled: boolean
+  next_wake_at?: number | null
+}
+
+export interface CronRunEntry {
+  id: string
+  job_id: string
+  job_name: string
+  ts?: number | null
+  run_at?: number | null
+  duration_ms?: number | null
+  status: string
+  summary: string
+  error?: string | null
+  model?: string | null
+  provider?: string | null
+  next_run_at?: number | null
+}
+
 export interface VaultFileItem {
   scope: 'inbox' | 'artifacts' | 'archive'
   path: string
@@ -402,6 +451,48 @@ export const api = {
     request<{ ok: boolean }>(`/portal-api/skills/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+  listCronJobs: () =>
+    request<{ scheduler: CronSchedulerStatus; jobs: CronJobItem[] }>('/portal-api/cron/jobs'),
+  createCronJob: (payload: {
+    name: string
+    message: string
+    schedule: CronSchedule
+    description?: string
+    enabled?: boolean
+    delete_after_run?: boolean
+  }) =>
+    request<{ ok: boolean; job: CronJobItem }>('/portal-api/cron/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateCronJob: (
+    id: string,
+    payload: {
+      name?: string
+      message?: string
+      schedule?: CronSchedule
+      description?: string
+      enabled?: boolean
+      delete_after_run?: boolean
+    },
+  ) =>
+    request<{ ok: boolean; job: CronJobItem }>(`/portal-api/cron/jobs/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteCronJob: (id: string) =>
+    request<{ ok: boolean }>(`/portal-api/cron/jobs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  runCronJob: (id: string) =>
+    request<{ ok: boolean; result?: unknown }>(
+      `/portal-api/cron/jobs/${encodeURIComponent(id)}/run`,
+      { method: 'POST' },
+    ),
+  getCronRuns: (id: string, limit = 20) =>
+    request<{ runs: CronRunEntry[] }>(
+      `/portal-api/cron/jobs/${encodeURIComponent(id)}/runs?limit=${limit}`,
+    ),
   getAnnualActivity: (year?: number) =>
     request<AnnualActivityResponse>(
       year ? `/portal-api/activity/year?year=${year}` : '/portal-api/activity/year',

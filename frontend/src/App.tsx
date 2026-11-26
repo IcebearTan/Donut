@@ -21,6 +21,7 @@ import { ProjectModal } from './components/ProjectModal'
 import { PwaInstallModal } from './components/PwaInstallModal'
 import { VaultView } from './components/VaultView'
 import { SkillsView } from './components/SkillsView'
+import { CronView } from './components/CronView'
 import { ProfileSettingsView, type SettingsSection } from './components/ProfileSettingsView'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -1086,6 +1087,7 @@ export function App() {
         }}
         onOpenVault={() => setActiveAppId('vault')}
         onOpenSkills={() => setActiveAppId('skills')}
+        onOpenCron={() => setActiveAppId('cron')}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
@@ -1149,7 +1151,9 @@ export function App() {
                       ? '我的文件仓'
                       : activeAppId === 'skills'
                         ? '技能库'
-                        : '个人主页与设置'}
+                        : activeAppId === 'cron'
+                          ? '定时任务'
+                          : '个人主页与设置'}
                   </span>
                 )}
               </div>
@@ -1259,6 +1263,8 @@ export function App() {
             onTeachInChat={() => handleSelectMainSession()}
             onChanged={() => refreshStatus()}
           />
+        ) : activeAppId === 'cron' ? (
+          <CronView user={user} onChanged={() => refreshStatus()} />
         ) : activeAppId === 'settings' ? (
           <ProfileSettingsView
             user={user}
