@@ -76,7 +76,7 @@ export function PomodoroTimerCard({
                 key={opt.id}
                 type="button"
                 onClick={() => onSelectPhase(opt.id)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
                 style={{
                   background: active ? 'var(--bg-surface)' : 'transparent',
                   color: active ? opt.color : 'var(--text-secondary)',
@@ -94,7 +94,7 @@ export function PomodoroTimerCard({
             type="button"
             data-testid="pomodoro-desk-btn"
             onClick={onOpenDesk}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors pressable cursor-pointer hover:bg-(--bg-hover)"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors pressable cursor-pointer hover:bg-(--bg-hover)"
             style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
           >
             <Maximize2 size={13} />
@@ -179,7 +179,7 @@ export function PomodoroTimerCard({
             style={{ background: activeMeta.color, color: '#ffffff' }}
           >
             {running ? <Pause size={16} /> : <Play size={16} />}
-            {running ? '暂停' : remainingSec < totalSec ? '继续' : '开始专注'}
+            {running ? '暂停' : remainingSec < totalSec ? '继续' : phase === 'focus' ? '开始专注' : '开始休息'}
           </button>
           <button
             type="button"

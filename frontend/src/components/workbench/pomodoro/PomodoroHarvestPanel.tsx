@@ -36,14 +36,14 @@ export function PomodoroHarvestPanel({ state, deletingId, justHarvested, onDelet
         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
       >
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold">今日番茄篮</h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
               每完成一次专注循环，就为你点亮一颗新鲜番茄
             </p>
           </div>
           <span
-            className="px-2.5 py-1 rounded-full text-xs font-semibold tabular-nums"
+            className="shrink-0 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-semibold tabular-nums"
             style={{
               background: summary.today_tomatoes >= summary.daily_goal
                 ? 'rgba(61, 163, 93, 0.14)'
@@ -97,23 +97,23 @@ export function PomodoroHarvestPanel({ state, deletingId, justHarvested, onDelet
         </div>
 
         <div className="grid grid-cols-3 gap-2 pt-1">
-          <div className="rounded-xl px-3 py-2.5" style={{ background: 'var(--bg-elevated)' }}>
-            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              <Flame size={12} style={{ color: '#E5534B' }} />
+          <div className="rounded-xl px-2.5 sm:px-3 py-2.5 min-w-0" style={{ background: 'var(--bg-elevated)' }}>
+            <div className="flex items-center gap-1 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+              <Flame size={12} className="shrink-0" style={{ color: '#E5534B' }} />
               连续打卡
             </div>
-            <div className="mt-1 text-base font-semibold tabular-nums">{summary.streak_days} 天</div>
+            <div className="mt-1 text-base font-semibold tabular-nums whitespace-nowrap">{summary.streak_days} 天</div>
           </div>
-          <div className="rounded-xl px-3 py-2.5" style={{ background: 'var(--bg-elevated)' }}>
-            <div className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-              <Trophy size={12} style={{ color: '#D99B26' }} />
+          <div className="rounded-xl px-2.5 sm:px-3 py-2.5 min-w-0" style={{ background: 'var(--bg-elevated)' }}>
+            <div className="flex items-center gap-1 text-[11px] whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+              <Trophy size={12} className="shrink-0" style={{ color: '#D99B26' }} />
               单日最高
             </div>
-            <div className="mt-1 text-base font-semibold tabular-nums">{summary.best_day_tomatoes} 颗</div>
+            <div className="mt-1 text-base font-semibold tabular-nums whitespace-nowrap">{summary.best_day_tomatoes} 颗</div>
           </div>
-          <div className="rounded-xl px-3 py-2.5" style={{ background: 'var(--bg-elevated)' }}>
-            <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>累计收获</div>
-            <div className="mt-1 text-base font-semibold tabular-nums">{summary.total_tomatoes} 颗</div>
+          <div className="rounded-xl px-2.5 sm:px-3 py-2.5 min-w-0" style={{ background: 'var(--bg-elevated)' }}>
+            <div className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>累计收获</div>
+            <div className="mt-1 text-base font-semibold tabular-nums whitespace-nowrap">{summary.total_tomatoes} 颗</div>
           </div>
         </div>
       </section>

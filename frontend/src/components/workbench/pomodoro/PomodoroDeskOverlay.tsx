@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Minimize2, Pause, Play, RotateCcw, SunMedium } from 'lucide-react'
 import { formatClock } from './pomodoroAudio'
 import { TomatoIcon } from './TomatoGraphic'
@@ -54,7 +55,7 @@ export function PomodoroDeskOverlay({
   const meta = PHASE_META[phase]
   const visibleSlots = Math.min(12, Math.max(dailyGoal, todayTomatoes))
 
-  return (
+  return createPortal(
     <div
       data-testid="pomodoro-desk-overlay"
       className="fixed inset-0 z-50 flex flex-col justify-between p-6 sm:p-10 select-none animate-msg-in"
@@ -77,7 +78,7 @@ export function PomodoroDeskOverlay({
 
         <div className="flex items-center gap-2">
           {wakeLockActive && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] bg-white/10 text-white/75">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] whitespace-nowrap shrink-0 bg-white/10 text-white/75">
               <SunMedium size={12} />
               屏幕常亮中
             </span>
@@ -85,7 +86,7 @@ export function PomodoroDeskOverlay({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white/10 hover:bg-white/15 text-white/85 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 bg-white/10 hover:bg-white/15 text-white/85 transition-colors cursor-pointer"
           >
             <Minimize2 size={13} />
             退出书桌模式
@@ -142,10 +143,11 @@ export function PomodoroDeskOverlay({
             <span className="text-xs text-white/70 tabular-nums ml-1">+{todayTomatoes - visibleSlots}</span>
           )}
         </div>
-        <span className="text-xs text-white/60 tabular-nums">
+        <span className="text-xs text-white/60 tabular-nums whitespace-nowrap">
           今日已收获 {todayTomatoes} / {dailyGoal} 颗番茄
         </span>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

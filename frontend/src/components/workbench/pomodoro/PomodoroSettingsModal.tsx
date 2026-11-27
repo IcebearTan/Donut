@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, SlidersHorizontal, Volume2, X, Zap } from 'lucide-react'
 import type { PomodoroSettings } from '../../../api/client'
 import { POMODORO_PRESETS } from './TomatoGraphic'
@@ -78,7 +79,7 @@ export function PomodoroSettingsModal({ settings, saving, onSave, onClose }: Pro
     onClose()
   }
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(15, 18, 24, 0.48)', backdropFilter: 'blur(4px)' }}
@@ -198,6 +199,7 @@ export function PomodoroSettingsModal({ settings, saving, onSave, onClose }: Pro
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }

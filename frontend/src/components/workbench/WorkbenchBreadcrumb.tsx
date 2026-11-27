@@ -39,7 +39,7 @@ export function WorkbenchBreadcrumb({
   return (
     <div
       data-testid="workbench-breadcrumb"
-      className="flex items-center justify-between gap-2 animate-msg-in"
+      className="relative z-30 flex items-center justify-between gap-2"
     >
       <div className="flex items-center gap-1.5 min-w-0">
         <button
