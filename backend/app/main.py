@@ -63,6 +63,12 @@ from .cron_service import (
 )
 from .runs import cancel_active_run, get_active_run, start_detached_run
 from .security_middleware import SecurityMiddleware
+from .session_lifecycle import (
+    build_session_key_suffix,
+    compact_session_context,
+    consume_carryover_context,
+    schedule_delete_openclaw_sessions,
+)
 from .status import get_companion_status
 from .titler import generate_smart_title
 from .workbench_routes import router as workbench_router
@@ -595,7 +601,7 @@ def _require_owned_session(conn: Any, session_id: str, user_id: str) -> dict:
 def _ensure_main_session(conn: Any, user_id: str) -> dict:
     row = conn.execute(
         """
-        SELECT id, title, space_type, project_id, is_main, created_at, updated_at
+        SELECT id, title, space_type, project_id, is_main, context_gen, compacted_at, created_at, updated_at
         FROM chat_sessions
         WHERE user_id = ? AND is_main = 1
         ORDER BY created_at ASC
@@ -620,6 +626,8 @@ def _ensure_main_session(conn: Any, user_id: str) -> dict:
         "space_type": "personal",
         "project_id": None,
         "is_main": 1,
+        "context_gen": 1,
+        "compacted_at": None,
         "created_at": ts,
         "updated_at": ts,
     }
@@ -631,7 +639,7 @@ def list_sessions(user: dict = Depends(get_current_user)) -> dict:
         _ensure_main_session(conn, user["id"])
         rows = conn.execute(
             """
-            SELECT id, title, space_type, project_id, is_main, created_at, updated_at
+            SELECT id, title, space_type, project_id, is_main, context_gen, compacted_at, created_at, updated_at
             FROM chat_sessions
             WHERE user_id = ?
             ORDER BY is_main DESC, updated_at DESC
@@ -753,16 +761,26 @@ async def auto_title_session(
     return {"ok": True, "title": smart_title}
 
 
+@app.post("/portal-api/sessions/{session_id}/compact")
+async def compact_session(
+    session_id: str, user: dict = Depends(get_current_user)
+) -> dict:
+    """Distill recent messages into MEMORY.md and roll over OpenClaw session context generation."""
+    return await compact_session_context(user["id"], session_id)
+
+
 @app.delete("/portal-api/sessions/{session_id}")
 def delete_session(session_id: str, user: dict = Depends(get_current_user)) -> dict:
     with db_session() as conn:
         sess = _require_owned_session(conn, session_id, user["id"])
         if sess.get("is_main"):
             raise HTTPException(status_code=400, detail="主对话不可删除")
+        max_gen = int(sess.get("context_gen") or 1)
         conn.execute(
             "DELETE FROM chat_sessions WHERE id = ? AND user_id = ?",
             (session_id, user["id"]),
         )
+    schedule_delete_openclaw_sessions(user["id"], session_id, max_gen=max_gen)
     return {"ok": True}
 
 
@@ -1239,10 +1257,15 @@ async def chat_stream(
     turn_instructions = build_turn_instructions(user["id"], active_project, all_projects)
 
     # Keep system prompt prefix 100% static so DeepSeek KV-cache hits at 95%+ (50x cheaper!).
-    # Append per-turn uploaded file paths at the TAIL of the user message payload.
+    # Append per-turn uploaded file paths & one-shot opening/carryover context at the TAIL of the user message payload.
     ensure_user_vault(user["id"])
+    context_gen = int(sess.get("context_gen") or 1)
+    session_key_suffix = build_session_key_suffix(body.session_id, context_gen)
     openclaw_text = text or ("请帮我看看这些附件" if doc_paths else "请帮我看看这张图片")
-    if is_first_turn and active_project is not None:
+    carryover = consume_carryover_context(user["id"], body.session_id)
+    if carryover:
+        openclaw_text += carryover
+    elif is_first_turn and active_project is not None:
         openclaw_text += build_project_opening_context(user["id"], active_project)
     all_attached = [*image_paths, *doc_paths]
     if all_attached:
@@ -1264,6 +1287,7 @@ async def chat_stream(
         instructions=turn_instructions or None,
         should_auto_title=should_auto_title,
         auto_title_seed=text or ("附件：" + ", ".join(doc_display_names)),
+        session_key_suffix=session_key_suffix,
     )
 
     async def event_generator():

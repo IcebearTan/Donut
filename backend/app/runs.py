@@ -85,6 +85,7 @@ def start_detached_run(
     instructions: Optional[str],
     should_auto_title: bool,
     auto_title_seed: str,
+    session_key_suffix: Optional[str] = None,
 ) -> ActiveRun:
     # Cancel any stale finished entry
     prev = _ACTIVE_RUNS.get(session_id)
@@ -111,6 +112,7 @@ def start_detached_run(
                 text=openclaw_text,
                 image_paths=image_paths,
                 instructions=instructions,
+                session_key_suffix=session_key_suffix,
             ):
                 ev_type = ev.get("type")
                 if ev_type == "delta":

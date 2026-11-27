@@ -67,6 +67,9 @@ def init_db() -> None:
                 title TEXT NOT NULL DEFAULT '新对话',
                 project_id TEXT DEFAULT NULL,
                 is_main INTEGER NOT NULL DEFAULT 0,
+                context_gen INTEGER NOT NULL DEFAULT 1,
+                carryover_summary TEXT NOT NULL DEFAULT '',
+                compacted_at INTEGER DEFAULT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -129,6 +132,18 @@ def init_db() -> None:
         if "is_main" not in sess_cols:
             conn.execute(
                 "ALTER TABLE chat_sessions ADD COLUMN is_main INTEGER NOT NULL DEFAULT 0"
+            )
+        if "context_gen" not in sess_cols:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN context_gen INTEGER NOT NULL DEFAULT 1"
+            )
+        if "carryover_summary" not in sess_cols:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN carryover_summary TEXT NOT NULL DEFAULT ''"
+            )
+        if "compacted_at" not in sess_cols:
+            conn.execute(
+                "ALTER TABLE chat_sessions ADD COLUMN compacted_at INTEGER DEFAULT NULL"
             )
         conn.execute(
             """

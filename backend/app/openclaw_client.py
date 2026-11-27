@@ -246,6 +246,7 @@ async def stream_openclaw_response(
     text: str,
     image_paths: list[Path],
     instructions: str | None = None,
+    session_key_suffix: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """
     Streams normalized events from OpenClaw Gateway's POST /v1/responses,
@@ -266,7 +267,8 @@ async def stream_openclaw_response(
         yield {"type": "error", "message": "OpenClaw Gateway token not configured on server"}
         return
 
-    session_key = f"agent:{agent_id}:portal-{session_id}"
+    suffix = (session_key_suffix or "").strip() or f"portal-{session_id}"
+    session_key = f"agent:{agent_id}:{suffix}"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
