@@ -51,6 +51,15 @@ BUILTIN_PLUGINS = [
         "default_users": {"bear"},
         "removable": False,
     },
+    {
+        "id": "ledger",
+        "kind": "builtin",
+        "name": "随手记账",
+        "description": "零外发离线记账、微信/支付宝账单导入与月度消费洞察",
+        "icon": "wallet",
+        "default_users": {"bear", "her"},
+        "removable": False,
+    },
 ]
 
 
