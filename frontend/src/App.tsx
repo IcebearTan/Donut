@@ -162,12 +162,16 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const scheme = theme === 'dark' ? 'dark' : 'only light'
     document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.style.colorScheme = scheme
     try {
       localStorage.setItem('portal_theme', theme)
     } catch {
       // ignore
     }
+    const schemeMeta = document.querySelector('meta[name="color-scheme"]')
+    if (schemeMeta) schemeMeta.setAttribute('content', scheme)
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', theme === 'dark' ? '#212121' : '#ffffff')
     const appleStatus = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')

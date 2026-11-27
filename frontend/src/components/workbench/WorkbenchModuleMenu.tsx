@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Check } from 'lucide-react'
 import type { WorkbenchModuleItem } from '../../api/client'
 import { WorkbenchIcon } from './iconMap'
@@ -45,6 +45,7 @@ export function WorkbenchModuleMenu({
   modules,
   activeId,
   groups,
+  triggerRef,
   onSelect,
   onClose,
 }: {
@@ -52,6 +53,7 @@ export function WorkbenchModuleMenu({
   activeId: string
   /** Optional section labels, matched on the first module id of each group. */
   groups?: Array<{ startId: string; label: string }>
+  triggerRef?: RefObject<HTMLElement | null>
   onSelect: (id: string) => void
   onClose: () => void
 }) {
@@ -59,7 +61,10 @@ export function WorkbenchModuleMenu({
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      if (ref.current?.contains(target)) return
+      if (triggerRef?.current?.contains(target)) return
+      onClose()
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -70,7 +75,7 @@ export function WorkbenchModuleMenu({
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [onClose])
+  }, [onClose, triggerRef])
 
   return (
     <div

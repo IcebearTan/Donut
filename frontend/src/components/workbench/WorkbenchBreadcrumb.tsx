@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { ArrowLeft, ChevronDown, Loader2, SlidersHorizontal } from 'lucide-react'
 import type { WorkbenchModuleItem } from '../../api/client'
 import { WorkbenchIcon } from './iconMap'
@@ -26,6 +27,7 @@ export function WorkbenchBreadcrumb({
   onManage,
 }: Props) {
   const menu = usePopover()
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const active = modules.find((m) => m.id === activeId)
   const coreCount = modules.filter((m) => m.kind === 'core').length
   const groups =
@@ -57,6 +59,7 @@ export function WorkbenchBreadcrumb({
         </span>
         <div className="relative min-w-0">
           <button
+            ref={triggerRef}
             type="button"
             data-testid="workbench-module-switcher"
             onClick={menu.toggle}
@@ -78,6 +81,7 @@ export function WorkbenchBreadcrumb({
               modules={modules}
               activeId={activeId}
               groups={groups}
+              triggerRef={triggerRef}
               onSelect={(id) => {
                 menu.close()
                 onSelect(id)
