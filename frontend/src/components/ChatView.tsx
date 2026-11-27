@@ -32,16 +32,21 @@ import {
   type UploadedAttachment,
   type UserProfile,
 } from '../api/client'
+import { CompactContextPill } from './CompactContextPill'
 
 interface Props {
   sessionKey: string
   user: UserProfile
   activeProject?: ProjectItem | null
   isMainSession?: boolean
+  contextGen?: number
+  compactedAt?: number | null
+  compacting?: boolean
   messages: ChatMessage[]
   streaming: boolean
   onSend: (text: string, attachments: UploadedAttachment[]) => void
   onStop: () => void
+  onCompactContext?: () => Promise<void> | void
   onOpenProjectMemory?: (projectId: string) => void
   /** Opens the 0-token quick Ledger capture; absent when the Ledger extension is off. */
   onOpenQuickLedger?: () => void
@@ -1061,10 +1066,14 @@ export function ChatView({
   user,
   activeProject,
   isMainSession,
+  contextGen = 1,
+  compactedAt = null,
+  compacting = false,
   messages,
   streaming,
   onSend,
   onStop,
+  onCompactContext,
   onOpenProjectMemory,
   onOpenQuickLedger,
 }: Props) {
@@ -1132,6 +1141,15 @@ export function ChatView({
     nearBottomRef.current = true
     onSendRef.current(text, files)
   }, [])
+
+  const turnsSinceCompact = useMemo(() => {
+    const cutoff = compactedAt || 0
+    let count = 0
+    for (const m of messages) {
+      if (m.role === 'user' && m.created_at > cutoff) count += 1
+    }
+    return count
+  }, [messages, compactedAt])
 
   const startIdx = Math.max(0, messages.length - visibleCount)
   const visibleMessages = startIdx > 0 ? messages.slice(startIdx) : messages
@@ -1263,6 +1281,17 @@ export function ChatView({
             })}
           </div>
         </div>
+      )}
+
+      {onCompactContext && (
+        <CompactContextPill
+          sessionKey={sessionKey}
+          contextGen={contextGen}
+          turnsSinceCompact={turnsSinceCompact}
+          streaming={streaming}
+          compacting={compacting}
+          onCompact={onCompactContext}
+        />
       )}
 
       <ChatComposer

@@ -361,8 +361,19 @@ export interface ChatSession {
   space_type: string
   project_id?: string | null
   is_main?: number
+  context_gen?: number
+  compacted_at?: number | null
   created_at: number
   updated_at: number
+}
+
+export interface CompactSessionResponse {
+  ok: boolean
+  session_id: string
+  context_gen: number
+  compacted_at: number
+  summary: string
+  memory_target: string
 }
 
 export interface ToolCallItem {
@@ -614,6 +625,10 @@ export const api = {
     ),
   autoTitleSession: (id: string) =>
     request<{ ok: boolean; title: string }>(`/portal-api/sessions/${id}/auto-title`, {
+      method: 'POST',
+    }),
+  compactSession: (id: string) =>
+    request<CompactSessionResponse>(`/portal-api/sessions/${id}/compact`, {
       method: 'POST',
     }),
   deleteSession: (id: string) =>

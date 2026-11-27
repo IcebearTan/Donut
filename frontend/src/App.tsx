@@ -80,6 +80,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null)
   const [distilling, setDistilling] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const [liveState, setLiveState] = useState<LiveStreamState>({
     streaming: false,
     startedAt: null,
@@ -629,6 +630,28 @@ export function App() {
       showToast(e instanceof Error ? e.message : '沉淀失败')
     } finally {
       setDistilling(false)
+    }
+  }
+
+  async function handleCompactActiveSession() {
+    if (!activeSessionId || compacting || streamingSessionId) return
+    const targetSid = activeSessionId
+    setCompacting(true)
+    try {
+      const res = await api.compactSession(targetSid)
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === targetSid
+            ? { ...s, context_gen: res.context_gen, compacted_at: res.compacted_at }
+            : s,
+        ),
+      )
+      showToast('已沉淀重点至长期记忆，上下文已轻装翻篇')
+      refreshStatus()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '记忆整理失败，请稍后重试')
+    } finally {
+      setCompacting(false)
     }
   }
 
@@ -1355,10 +1378,14 @@ export function App() {
               user={user}
               activeProject={activeProject}
               isMainSession={isMainSession}
+              contextGen={activeSession?.context_gen ?? 1}
+              compactedAt={activeSession?.compacted_at ?? null}
+              compacting={compacting}
               messages={messages}
               streaming={Boolean(activeSessionId && streamingSessionId === activeSessionId)}
               onSend={handleSend}
               onStop={handleStop}
+              onCompactContext={activeSessionId ? handleCompactActiveSession : undefined}
               onOpenQuickLedger={ledgerEnabled ? openQuickLedger : undefined}
               onOpenProjectMemory={(pid) => setProjectModal({ open: true, projectId: pid })}
             />
