@@ -2,52 +2,118 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import fnmatch
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .config import OPENCLAW_GATEWAY_URL
+from .config import OPENCLAW_GATEWAY_URL, USER_AGENT_MAP
 from .db import db_session
 from .persona import get_agent_workspace
 from .vault import list_user_skills, list_user_vault_files
 
+META_TTL_SEC = 15.0
+GATEWAY_TTL_SEC = 15.0
 
-def _load_openclaw_meta() -> tuple[str, bool, bool]:
-    """Read primary model label, notion MCP presence, and active-memory presence."""
+_META_CACHE: dict[str, tuple[float, tuple[str, bool, bool]]] = {}
+_GATEWAY_CACHE: tuple[float, bool] | None = None
+
+
+def clear_status_caches() -> None:
+    """Clear in-memory status TTL caches (primarily for tests)."""
+    global _GATEWAY_CACHE
+    _META_CACHE.clear()
+    _GATEWAY_CACHE = None
+
+
+def _format_model_label(model_spec: str) -> str:
+    low = model_spec.lower()
+    if "deepseek" in low:
+        return "DeepSeek"
+    if "gemini" in low:
+        return "Gemini"
+    if "claude" in low:
+        return "Claude"
+    if "gpt" in low or "openai" in low:
+        return "OpenAI"
+    return model_spec.split("/")[-1][:18] or "DeepSeek"
+
+
+def _agent_allows_notion(data: dict[str, Any], agent_id: str) -> bool:
+    mcp_servers = data.get("mcp", {}).get("servers", {})
+    if not isinstance(mcp_servers, dict):
+        return False
+    notion_entries = [
+        cfg for name, cfg in mcp_servers.items() if "notion" in str(name).lower()
+    ]
+    if not notion_entries:
+        return False
+
+    allowed_by_server = False
+    for cfg in notion_entries:
+        if isinstance(cfg, dict):
+            scoped = cfg.get("agents")
+            if isinstance(scoped, list) and scoped:
+                if agent_id in scoped:
+                    allowed_by_server = True
+            else:
+                allowed_by_server = True
+        else:
+            allowed_by_server = True
+    if not allowed_by_server:
+        return False
+
+    agent_cfg = data.get("agents", {}).get("entries", {}).get(agent_id, {})
+    if isinstance(agent_cfg, dict):
+        deny = agent_cfg.get("tools", {}).get("deny", [])
+        if isinstance(deny, list):
+            for pat in deny:
+                p = str(pat).strip().lower()
+                if not p:
+                    continue
+                if (
+                    fnmatch.fnmatch("notion-search", p)
+                    or fnmatch.fnmatch("mcp:notion", p)
+                    or "notion" in p
+                ):
+                    return False
+    return True
+
+
+def _load_openclaw_meta(agent_id: str = "main") -> tuple[str, bool, bool]:
+    """Read per-agent model label, Notion MCP access, and memory status with 15s TTL cache."""
+    now = time.monotonic()
+    cached = _META_CACHE.get(agent_id)
+    if cached and (now - cached[0]) < META_TTL_SEC:
+        return cached[1]
+
     oc_cfg = Path(os.environ.get("OPENCLAW_HOME", str(Path.home()))) / ".openclaw" / "openclaw.json"
     model_label = "DeepSeek"
     has_notion = False
     has_memory = True
     if not oc_cfg.exists():
-        return model_label, has_notion, has_memory
+        result = (model_label, has_notion, has_memory)
+        _META_CACHE[agent_id] = (now, result)
+        return result
     try:
         raw = oc_cfg.read_text(encoding="utf-8")
         data = json.loads(raw)
+        agent_entry = data.get("agents", {}).get("entries", {}).get(agent_id, {})
+        agent_model = agent_entry.get("model") if isinstance(agent_entry, dict) else ""
+        if isinstance(agent_model, dict):
+            agent_model = agent_model.get("primary", "")
         primary = (
-            data.get("agents", {})
-            .get("defaults", {})
-            .get("model", {})
-            .get("primary", "")
+            agent_model
+            if isinstance(agent_model, str) and agent_model.strip()
+            else data.get("agents", {}).get("defaults", {}).get("model", {}).get("primary", "")
         )
-        if isinstance(primary, str) and primary:
-            if "deepseek" in primary.lower():
-                model_label = "DeepSeek"
-            elif "gemini" in primary.lower():
-                model_label = "Gemini"
-            elif "claude" in primary.lower():
-                model_label = "Claude"
-            elif "gpt" in primary.lower() or "openai" in primary.lower():
-                model_label = "OpenAI"
-            else:
-                model_label = primary.split("/")[-1][:18]
+        if isinstance(primary, str) and primary.strip():
+            model_label = _format_model_label(primary.strip())
 
-        mcp_servers = data.get("mcp", {}).get("servers", {})
-        if isinstance(mcp_servers, dict):
-            has_notion = any("notion" in k.lower() for k in mcp_servers.keys())
-        if not has_notion and "mcp.notion.com" in raw:
-            has_notion = True
+        has_notion = _agent_allows_notion(data, agent_id)
 
         plugins = data.get("plugins", {}).get("entries", {})
         if isinstance(plugins, dict):
@@ -64,22 +130,32 @@ def _load_openclaw_meta() -> tuple[str, bool, bool]:
             has_memory = has_active or has_wiki
     except Exception:
         pass
-    return model_label, has_notion, has_memory
+    result = (model_label, has_notion, has_memory)
+    _META_CACHE[agent_id] = (now, result)
+    return result
 
 
 async def _check_gateway_online() -> bool:
+    global _GATEWAY_CACHE
+    now = time.monotonic()
+    if _GATEWAY_CACHE and (now - _GATEWAY_CACHE[0]) < GATEWAY_TTL_SEC:
+        return _GATEWAY_CACHE[1]
+
     parsed = urlparse(OPENCLAW_GATEWAY_URL)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    online = False
     try:
         _reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=1.2
         )
         writer.close()
         await writer.wait_closed()
-        return True
+        online = True
     except Exception:
-        return False
+        online = False
+    _GATEWAY_CACHE = (now, online)
+    return online
 
 
 def _friendly_tool_activity(name: str) -> str:
@@ -104,9 +180,10 @@ def _today_start_ms() -> int:
 
 
 async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
-    gateway_online = await _check_gateway_online()
-    model_label, has_notion, has_memory = _load_openclaw_meta()
     uid = user["id"]
+    agent_id = USER_AGENT_MAP.get(uid, "main")
+    gateway_online = await _check_gateway_online()
+    model_label, has_notion, has_memory = _load_openclaw_meta(agent_id)
     today_ms = _today_start_ms()
 
     activities: list[dict[str, Any]] = []
@@ -248,8 +325,7 @@ async def get_companion_status(user: dict[str, Any]) -> dict[str, Any]:
     connections = [
         {"id": "engine", "label": f"OpenClaw · {model_label}", "online": gateway_online},
     ]
-    # Only surface Notion badge on bear's workspace (or if notion MCP is configured)
-    if has_notion and uid == "bear":
+    if has_notion:
         connections.append({"id": "notion", "label": "Notion 已连接", "online": gateway_online})
     if has_memory:
         connections.append({"id": "memory", "label": "长期记忆 · Wiki", "online": gateway_online})
