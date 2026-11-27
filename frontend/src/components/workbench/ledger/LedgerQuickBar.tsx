@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ClipboardEvent } from 'react'
 import { Check, FileUp, ImagePlus, Loader2, ShieldCheck, X } from 'lucide-react'
 import { api, type LedgerCreateResult } from '../../../api/client'
 import {
@@ -65,7 +65,7 @@ export function LedgerQuickBar({
   }
 
   /** Screenshots go through the serial server OCR queue; sanitized results are appended to the preview. */
-  async function handleImages(files: FileList | null) {
+  async function handleImages(files: FileList | File[] | null) {
     const picked = Array.from(files || [])
     if (picked.length === 0 || ocrProgress) return
     setErr('')
@@ -74,6 +74,18 @@ export function LedgerQuickBar({
     setOcrProgress(null)
     if (found.length > 0) setPreview((cur) => [...cur, ...found])
     if (failed.length > 0) setErr(failed.join('；'))
+  }
+
+  /** Ctrl+V with a payment screenshot in the clipboard goes straight to offline OCR. */
+  function handlePaste(e: ClipboardEvent<HTMLInputElement>) {
+    const images: File[] = []
+    for (const item of Array.from(e.clipboardData.items)) {
+      const file = item.kind === 'file' && item.type.startsWith('image/') ? item.getAsFile() : null
+      if (file) images.push(file)
+    }
+    if (images.length === 0 || ocrProgress) return
+    e.preventDefault()
+    handleImages(images)
   }
 
   async function handleConfirm() {
@@ -99,7 +111,7 @@ export function LedgerQuickBar({
         <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>随手记</span>
         <span className="inline-flex items-center gap-1 text-[11.5px]" style={{ color: 'var(--text-muted)' }}>
           <ShieldCheck size={12} />
-          <span>离线解析 · 不调用任何外部 AI</span>
+          <span>离线解析 · 不调用外部 AI · 支持 Ctrl+V 粘贴支付截图</span>
         </span>
       </div>
 
@@ -110,6 +122,7 @@ export function LedgerQuickBar({
           maxLength={2000}
           disabled={busy}
           onChange={(e) => setText(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (isPlainEnter(e)) {
               e.preventDefault()
@@ -117,6 +130,7 @@ export function LedgerQuickBar({
             }
           }}
           placeholder="午饭 25，瑞幸 16.9，昨天打车 38 微信"
+          title="可直接 Ctrl+V 粘贴支付截图，自动离线识别"
           className="flex-1 min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none disabled:opacity-60"
           style={ledgerInputStyle}
         />

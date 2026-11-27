@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   type LedgerCreateResult,
@@ -6,6 +6,7 @@ import {
   type LedgerOverview,
   type LedgerSettings,
 } from '../../../api/client'
+import { LEDGER_UPDATED_EVENT } from '../../../utils/portalRoute'
 import { LedgerEntryList } from './LedgerEntryList'
 import { LedgerEntryModal } from './LedgerEntryModal'
 import { LedgerHeader } from './LedgerHeader'
@@ -14,7 +15,7 @@ import { LedgerPrivacyModal } from './LedgerPrivacyModal'
 import { LedgerQuickBar } from './LedgerQuickBar'
 import { LedgerSummaryCards } from './LedgerSummaryCards'
 import { LedgerNotice } from './LedgerUi'
-import { errorMessage, shiftMonth, todayMonth } from './ledgerMeta'
+import { errorMessage, shiftMonth, type LedgerSlideDir } from './ledgerMeta'
 
 const DEFAULT_SETTINGS: LedgerSettings = { monthly_budget: 0, strict_offline: true }
 const CONFIRM_WINDOW_MS = 6000
@@ -29,6 +30,11 @@ function readMasked(userId: string): boolean {
   } catch {
     return false
   }
+}
+
+function slideBetween(previous: string | undefined, next: string): LedgerSlideDir {
+  if (!previous || previous === next) return 'none'
+  return next > previous ? 'right' : 'left'
 }
 
 /** Shell of the 随手记账 plugin: owns the overview state, privacy mask, month and all modals. */
@@ -46,24 +52,49 @@ export function LedgerTab({ userId, onToast }: { userId: string; onToast?: (msg:
   const [editor, setEditor] = useState<{ open: boolean; entry: LedgerEntry | null }>({ open: false, entry: null })
   const [privacyOpen, setPrivacyOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  /** Bumped after every successful load so the figures, bars and rows replay their motion. */
+  const [refreshTick, setRefreshTick] = useState(0)
+  const [slideDir, setSlideDir] = useState<LedgerSlideDir>('none')
+  const shownData = useRef<LedgerOverview | null>(null)
+  const requestId = useRef(0)
+  const monthRef = useRef(month)
+  monthRef.current = month
 
   const toast = (msg: string) => onToast?.(msg)
 
-  const load = useCallback(async (target: string) => {
+  /**
+   * Loads a month while the previous overview stays on screen. `animate` slides the cards in the
+   * direction of travel (month switch); plain refreshes replay in place.
+   */
+  const load = useCallback(async (target: string, animate = false) => {
+    const id = ++requestId.current
     setLoading(true)
     setErr('')
     try {
-      setData(await api.getLedger(target || undefined))
+      const next = await api.getLedger(target || undefined)
+      // A slower, older request must never overwrite a newer month.
+      if (id !== requestId.current) return
+      setSlideDir(animate ? slideBetween(shownData.current?.month, next.month) : 'none')
+      shownData.current = next
+      setData(next)
+      setRefreshTick((tick) => tick + 1)
     } catch (e) {
-      setErr(errorMessage(e, '加载账本失败'))
+      if (id === requestId.current) setErr(errorMessage(e, '加载账本失败'))
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    load(month)
+    load(month, true)
   }, [load, month])
+
+  // Entries added from the global quick-ledger modal (or another view) refresh the open month.
+  useEffect(() => {
+    const onUpdated = () => load(monthRef.current)
+    window.addEventListener(LEDGER_UPDATED_EVENT, onUpdated)
+    return () => window.removeEventListener(LEDGER_UPDATED_EVENT, onUpdated)
+  }, [load])
 
   useEffect(() => {
     if (!confirmingId) return
@@ -71,14 +102,10 @@ export function LedgerTab({ userId, onToast }: { userId: string; onToast?: (msg:
     return () => clearTimeout(timer)
   }, [confirmingId])
 
-  const shownMonth = data?.month ?? month
-  const monthOptions = useMemo(
-    () =>
-      Array.from(new Set([shownMonth, todayMonth(), ...(data?.available_months || [])]))
-        .filter(Boolean)
-        .sort((a, b) => b.localeCompare(a)),
-    [shownMonth, data],
-  )
+  // The switcher answers immediately; the cards below still show the previous month while loading.
+  const shownMonth = month || data?.month || ''
+  const availableMonths = data?.available_months || []
+  const openEditor = (entry: LedgerEntry | null) => setEditor({ open: true, entry })
 
   function toggleMasked() {
     const next = !masked
@@ -120,19 +147,19 @@ export function LedgerTab({ userId, onToast }: { userId: string; onToast?: (msg:
     <div data-testid="ledger-tab" className="space-y-4 animate-msg-in">
       <LedgerHeader
         shownMonth={shownMonth}
-        monthOptions={monthOptions}
+        availableMonths={availableMonths}
         loading={loading}
         strictOffline={Boolean(data?.settings.strict_offline)}
         masked={masked}
         onMonth={setMonth}
-        onStep={(delta) => data && setMonth(shiftMonth(data.month, delta))}
+        onStep={(delta) => shownMonth && setMonth(shiftMonth(shownMonth, delta))}
+        onRefresh={() => load(month)}
         onToggleMask={toggleMasked}
         onOpenPrivacy={() => setPrivacyOpen(true)}
+        onAdd={() => openEditor(null)}
       />
 
       {err && <LedgerNotice tone="danger">{err}</LedgerNotice>}
-
-      {data && <LedgerSummaryCards data={data} masked={masked} onOpenSettings={() => setPrivacyOpen(true)} />}
 
       <LedgerQuickBar
         masked={masked}
@@ -140,6 +167,17 @@ export function LedgerTab({ userId, onToast }: { userId: string; onToast?: (msg:
         onOpenImport={() => setImportOpen(true)}
         onToast={toast}
       />
+
+      {data && (
+        <LedgerSummaryCards
+          data={data}
+          masked={masked}
+          loading={loading}
+          refreshTick={refreshTick}
+          slideDir={slideDir}
+          onOpenSettings={() => setPrivacyOpen(true)}
+        />
+      )}
 
       <LedgerEntryList
         entries={data?.entries || []}
@@ -149,10 +187,13 @@ export function LedgerTab({ userId, onToast }: { userId: string; onToast?: (msg:
         confirmingId={confirmingId}
         category={category}
         search={search}
+        monthKey={data?.month || ''}
+        refreshTick={refreshTick}
+        slideDir={slideDir}
         onCategory={setCategory}
         onSearch={setSearch}
-        onAdd={() => setEditor({ open: true, entry: null })}
-        onEdit={(entry) => setEditor({ open: true, entry })}
+        onAdd={() => openEditor(null)}
+        onEdit={openEditor}
         onRequestDelete={(entry) => setConfirmingId(entry.id)}
         onDelete={handleDelete}
         onCancelDelete={() => setConfirmingId(null)}

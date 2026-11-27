@@ -135,7 +135,7 @@ function readInitialRoute(): PortalRouteState {
 
 /**
  * Owns the route state. `navigateTo` patches it and writes the hash (no history entry when
- * nothing changes); browser back / forward and hand-edited hashes flow back through `hashchange`.
+ * nothing changes); browser back / forward and hand-edited hashes flow back through `popstate` / `hashchange`.
  * Entering a different app resets that app's sub-view unless the patch sets it explicitly.
  */
 export function usePortalRoute(): readonly [
@@ -165,9 +165,15 @@ export function usePortalRoute(): readonly [
   )
 
   useEffect(() => {
-    const onHashChange = () => commit(parsePortalHash(window.location.hash), false)
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
+    const syncFromLocation = () => commit(parsePortalHash(window.location.hash), false)
+    // `pushState` entries only announce themselves through `popstate`; hand-edited hashes and
+    // the `location.hash` fallback fire both events, and `commit` ignores the duplicate.
+    window.addEventListener('popstate', syncFromLocation)
+    window.addEventListener('hashchange', syncFromLocation)
+    return () => {
+      window.removeEventListener('popstate', syncFromLocation)
+      window.removeEventListener('hashchange', syncFromLocation)
+    }
   }, [commit])
 
   return [route, navigateTo]

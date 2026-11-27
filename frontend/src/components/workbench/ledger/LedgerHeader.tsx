@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Eye, EyeOff, RefreshCw, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Plus, RefreshCw, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { LedgerMonthPopover, latestSelectableMonth } from './LedgerMonthPopover'
 import { LedgerPillButton } from './LedgerPrimitives'
-import { ledgerInputStyle, ledgerSurfaceStyle, monthLabel, shiftMonth, todayMonth } from './ledgerMeta'
+import { ledgerSurfaceStyle, todayMonth } from './ledgerMeta'
 
 const roundButtonStyle = {
   background: 'var(--bg-sidebar)',
@@ -9,38 +10,40 @@ const roundButtonStyle = {
   color: 'var(--text-secondary)',
 }
 
-/** Month switcher + privacy mask + entry point to 隐私与设置. */
+const roundButtonClass = 'w-8 h-8 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer disabled:opacity-40'
+
+/** Month switcher + privacy mask + the primary "add an entry" call to action. */
 export function LedgerHeader({
   shownMonth,
-  monthOptions,
+  availableMonths,
   loading,
   strictOffline,
   masked,
   onMonth,
   onStep,
+  onRefresh,
   onToggleMask,
   onOpenPrivacy,
+  onAdd,
 }: {
+  /** Month shown in the switcher; `''` until the first load picks one. */
   shownMonth: string
-  monthOptions: string[]
+  /** Months that hold at least one entry (dots in the month popover). */
+  availableMonths: string[]
   loading: boolean
   strictOffline: boolean
   masked: boolean
   onMonth: (month: string) => void
   onStep: (delta: 1 | -1) => void
+  onRefresh: () => void
   onToggleMask: () => void
   onOpenPrivacy: () => void
+  onAdd: () => void
 }) {
   const ready = Boolean(shownMonth)
+  const today = todayMonth()
   const stepButton = (delta: 1 | -1, label: string, icon: ReactNode, disabled: boolean) => (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onStep(delta)}
-      className="w-8 h-8 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer disabled:opacity-40"
-      style={roundButtonStyle}
-    >
+    <button type="button" aria-label={label} disabled={disabled} onClick={() => onStep(delta)} className={roundButtonClass} style={roundButtonStyle}>
       {icon}
     </button>
   )
@@ -51,29 +54,39 @@ export function LedgerHeader({
       className="rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
       style={ledgerSurfaceStyle}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {stepButton(-1, '上一个月', <ChevronLeft size={15} />, !ready)}
-        <select
-          aria-label="选择月份"
-          data-testid="ledger-month-select"
-          value={shownMonth}
-          disabled={!ready}
-          onChange={(e) => onMonth(e.target.value)}
-          className="px-3 py-1.5 rounded-xl text-sm font-semibold outline-none cursor-pointer disabled:opacity-60"
-          style={ledgerInputStyle}
+        <LedgerMonthPopover value={shownMonth} availableMonths={availableMonths} disabled={!ready} onChange={onMonth} />
+        {stepButton(1, '下一个月', <ChevronRight size={15} />, !ready || shownMonth >= latestSelectableMonth())}
+        {ready && shownMonth !== today && (
+          <button
+            type="button"
+            data-testid="ledger-back-to-today"
+            onClick={() => onMonth(today)}
+            className="px-2.5 py-1 rounded-full text-[11.5px] font-medium pressable cursor-pointer"
+            style={{ border: '1px solid var(--border-strong)', color: 'var(--text-secondary)' }}
+          >
+            回本月
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label="刷新账本"
+          title="刷新"
+          data-testid="ledger-refresh"
+          disabled={loading}
+          onClick={onRefresh}
+          className={roundButtonClass}
+          style={roundButtonStyle}
         >
-          {monthOptions.map((m) => (
-            <option key={m} value={m}>{monthLabel(m)}</option>
-          ))}
-        </select>
-        {stepButton(1, '下一个月', <ChevronRight size={15} />, !ready || shownMonth >= shiftMonth(todayMonth(), 12))}
-        <RefreshCw size={13} className={loading ? 'animate-spin' : 'invisible'} style={{ color: 'var(--text-muted)' }} />
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center justify-end gap-2 flex-wrap">
         {strictOffline && (
           <span
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-medium"
+            className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-medium"
             style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
           >
             <ShieldCheck size={12} />
@@ -95,6 +108,16 @@ export function LedgerHeader({
         >
           隐私与设置
         </LedgerPillButton>
+        <button
+          type="button"
+          data-testid="ledger-header-add"
+          onClick={onAdd}
+          className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-full text-xs font-semibold pressable cursor-pointer"
+          style={{ background: 'var(--accent)', color: 'var(--accent-contrast)' }}
+        >
+          <Plus size={14} />
+          <span>记一笔</span>
+        </button>
       </div>
     </div>
   )

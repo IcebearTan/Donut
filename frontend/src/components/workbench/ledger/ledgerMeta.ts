@@ -52,6 +52,25 @@ export const ledgerSurfaceStyle: CSSProperties = {
   border: '1px solid var(--border-subtle)',
 }
 
+/** Where freshly loaded month data slides in from: the later month sits to the right. */
+export type LedgerSlideDir = 'left' | 'right' | 'none'
+
+export const LEDGER_SLIDE_CLASS: Record<LedgerSlideDir, string> = {
+  left: 'animate-slide-from-left',
+  right: 'animate-slide-from-right',
+  none: '',
+}
+
+/** Rows that stagger in when a month loads or refreshes. */
+const STAGGER_ROWS = 12
+/** Longest wait before a row starts, in 24ms steps, so a long list never trails off. */
+const STAGGER_MAX_STEPS = 10
+
+/** Stagger step of the row at `index` (multiply by 24ms), or `-1` when the row just appears. */
+export function ledgerStaggerStep(index: number): number {
+  return index < STAGGER_ROWS ? Math.min(index, STAGGER_MAX_STEPS) : -1
+}
+
 export function formatMoney(amount: number): string {
   return `¥${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
