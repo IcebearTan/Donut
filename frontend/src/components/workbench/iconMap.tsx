@@ -21,6 +21,8 @@ import {
   Wallet,
 } from 'lucide-react'
 
+import { TomatoIcon } from './pomodoro/TomatoGraphic'
+
 const ICON_MAP = {
   focus: Crosshair,
   crosshair: Crosshair,
@@ -58,7 +60,10 @@ export function WorkbenchIcon({
   size?: number
   className?: string
 }) {
-  const key = (name || 'puzzle').trim().toLowerCase() as keyof typeof ICON_MAP
-  const Icon = ICON_MAP[key] || Puzzle
+  const key = (name || 'puzzle').trim().toLowerCase()
+  if (key === 'pomodoro' || key === 'tomato') {
+    return <TomatoIcon size={size} variant="outline" className={className} />
+  }
+  const Icon = ICON_MAP[key as keyof typeof ICON_MAP] || Puzzle
   return <Icon size={size} className={className} />
 }

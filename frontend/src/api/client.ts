@@ -376,6 +376,57 @@ export interface CompactSessionResponse {
   memory_target: string
 }
 
+export interface PomodoroSettings {
+  focus_minutes: number
+  short_break_minutes: number
+  long_break_minutes: number
+  long_break_interval: number
+  daily_goal: number
+  sound_enabled: boolean
+  wake_lock_enabled: boolean
+}
+
+export interface PomodoroSession {
+  id: string
+  client_id?: string
+  date: string
+  started_at: number
+  completed_at: number
+  duration_minutes: number
+  tag: string
+  note: string
+}
+
+export interface PomodoroWeeklyPoint {
+  date: string
+  label: string
+  short_date: string
+  tomatoes: number
+  minutes: number
+  is_today: boolean
+}
+
+export interface PomodoroSummary {
+  today_tomatoes: number
+  today_minutes: number
+  daily_goal: number
+  total_tomatoes: number
+  total_minutes: number
+  streak_days: number
+  best_day_tomatoes: number
+}
+
+export interface PomodoroState {
+  updated_at: number
+  today: string
+  settings: PomodoroSettings
+  summary: PomodoroSummary
+  weekly: PomodoroWeeklyPoint[]
+  today_sessions: PomodoroSession[]
+  recent_sessions: PomodoroSession[]
+  tags: string[]
+}
+
 export interface ToolCallItem {
   id: string
   name: string
@@ -907,6 +958,32 @@ export const api = {
     request<{ ok: boolean }>(`/portal-api/workbench/apps/${encodeURIComponent(appId)}`, {
       method: 'DELETE',
     }),
+  getPomodoro: () => request<PomodoroState>('/portal-api/workbench/pomodoro'),
+  updatePomodoroSettings: (patch: Partial<PomodoroSettings>) =>
+    request<{ ok: boolean; state: PomodoroState }>('/portal-api/workbench/pomodoro/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  recordPomodoroSession: (payload: {
+    client_id?: string
+    duration_minutes: number
+    started_at?: number
+    completed_at?: number
+    tag?: string
+    note?: string
+  }) =>
+    request<{ ok: boolean; duplicated: boolean; session: PomodoroSession; state: PomodoroState }>(
+      '/portal-api/workbench/pomodoro/sessions',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+  deletePomodoroSession: (sessionId: string) =>
+    request<{ ok: boolean; state: PomodoroState }>(
+      `/portal-api/workbench/pomodoro/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'DELETE' },
+    ),
   logoutAll: () => request<{ ok: boolean }>('/portal-api/auth/logout-all', { method: 'POST' }),
   getLedger: (month?: string) =>
     request<LedgerOverview>(

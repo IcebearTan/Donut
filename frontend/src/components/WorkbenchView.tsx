@@ -4,6 +4,7 @@ import { CronView } from './CronView'
 import { ReimbursementTab } from './ReimbursementTab'
 import { FocusTab } from './workbench/FocusTab'
 import { LedgerTab } from './workbench/ledger/LedgerTab'
+import { PomodoroTab } from './workbench/pomodoro/PomodoroTab'
 import { MicroAppHost } from './workbench/MicroAppHost'
 import { ModuleManagerModal } from './workbench/ModuleManagerModal'
 import { WorkbenchBreadcrumb } from './workbench/WorkbenchBreadcrumb'
@@ -123,6 +124,7 @@ export function WorkbenchView({
       return <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
     }
     if (id === 'ledger' && extension) return <LedgerTab userId={user.id} onToast={onToast} />
+    if (id === 'pomodoro' && extension) return <PomodoroTab userId={user.id} onToast={onToast} />
     return extension ? <MicroAppHost module={extension} onToast={onToast} /> : null
   }
 
