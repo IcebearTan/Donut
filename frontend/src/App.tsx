@@ -12,6 +12,7 @@ import {
   type ProjectItem,
   type UploadedAttachment,
   type UserProfile,
+  type WorkbenchModuleItem,
 } from './api/client'
 import { LoginView } from './components/LoginView'
 import { SessionSidebar } from './components/SessionSidebar'
@@ -21,7 +22,9 @@ import { ProjectModal } from './components/ProjectModal'
 import { PwaInstallModal } from './components/PwaInstallModal'
 import { VaultView } from './components/VaultView'
 import { WorkbenchView } from './components/WorkbenchView'
-import { ProfileSettingsView, type SettingsSection } from './components/ProfileSettingsView'
+import { ProfileSettingsView } from './components/ProfileSettingsView'
+import { QuickLedgerModal } from './components/workbench/ledger/QuickLedgerModal'
+import { PORTAL_BUILTIN_APP_IDS, usePortalRoute } from './utils/portalRoute'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -57,8 +60,18 @@ export function App() {
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [user, setUser] = useState<UserProfile | null>(null)
   const [apps, setApps] = useState<PortalAppItem[]>([])
-  const [activeAppId, setActiveAppId] = useState('donut')
+  // Navigation state is mirrored to the URL hash so a refresh / back / forward keeps the view.
+  const [route, navigateTo] = usePortalRoute()
+  const { appId: activeAppId, workbenchModule, settingsSection } = route
   const [externalLaunchUrl, setExternalLaunchUrl] = useState<string | null>(null)
+  const [ledgerEnabled, setLedgerEnabled] = useState(false)
+  const [quickLedgerOpen, setQuickLedgerOpen] = useState(false)
+  // Stable identity: WorkbenchView keeps it in the deps of its module loader.
+  const syncLedgerEnabled = useCallback(
+    (modules: WorkbenchModuleItem[]) =>
+      setLedgerEnabled(modules.some((m) => m.id === 'ledger' && m.enabled)),
+    [],
+  )
 
   const [projects, setProjects] = useState<ProjectItem[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
@@ -80,7 +93,6 @@ export function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileCompanionOpen, setMobileCompanionOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('overview')
   const [projectModal, setProjectModal] = useState<{ open: boolean; projectId: string | null }>({
     open: false,
     projectId: null,
@@ -354,7 +366,7 @@ export function App() {
 
   const openSessionById = useCallback(
     async (id: string, projectId: string | null) => {
-      setActiveAppId('donut')
+      navigateTo({ appId: 'donut' })
       setActiveSessionAndRef(id)
       setActiveProjectId(projectId)
 
@@ -379,7 +391,7 @@ export function App() {
         }
       }
     },
-    [reattachActiveRun, setActiveSessionAndRef],
+    [navigateTo, reattachActiveRun, setActiveSessionAndRef],
   )
 
   const loadWorkspace = useCallback(async () => {
@@ -428,11 +440,53 @@ export function App() {
 
   useEffect(() => {
     if (!user) return
+    // The Ledger is an opt-in extension: the global quick-capture entry only exists while it is on.
+    api
+      .listWorkbenchModules()
+      .then((r) => syncLedgerEnabled(r.modules))
+      .catch(() => {})
     const timer = window.setInterval(() => {
       api.getStatus().then(setCompanionStatus).catch(() => {})
     }, 60_000)
     return () => window.clearInterval(timer)
-  }, [user])
+  }, [user, syncLedgerEnabled])
+
+  // Resolve the app restored from the hash: relaunch external apps (refresh / back / forward on
+  // #app/<id>) and fall back to chat for ids that are neither built-in views nor launched apps.
+  const activeExternalId = apps.find((a) => a.id === activeAppId && a.type === 'link')?.id ?? null
+  useEffect(() => {
+    if (!user) return
+    if (activeExternalId) {
+      const app = apps.find((a) => a.id === activeExternalId)!
+      let cancelled = false
+      api.launchApp(app.id)
+        .then((res) => {
+          if (!cancelled) setExternalLaunchUrl(res.url)
+        })
+        .catch(() => {
+          if (!cancelled) setExternalLaunchUrl(app.path)
+        })
+      return () => {
+        cancelled = true
+      }
+    }
+    const known = PORTAL_BUILTIN_APP_IDS.includes(activeAppId) || apps.some((a) => a.id === activeAppId)
+    if (!known) navigateTo({ appId: 'donut' }, true)
+    return undefined
+  }, [user, apps, activeAppId, activeExternalId, navigateTo])
+
+  const openQuickLedger = useCallback(() => setQuickLedgerOpen(true), [])
+
+  useEffect(() => {
+    function onShortcut(e: KeyboardEvent) {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.repeat || e.key.toLowerCase() !== 'l') return
+      e.preventDefault()
+      setQuickLedgerOpen((v) => !v)
+    }
+    if (!ledgerEnabled) return
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [ledgerEnabled])
 
   async function handleSelectSession(id: string) {
     const target = sessions.find((s) => s.id === id)
@@ -444,7 +498,7 @@ export function App() {
     if (mainSess) {
       await openSessionById(mainSess.id, null)
     } else {
-      setActiveAppId('donut')
+      navigateTo({ appId: 'donut' })
       setActiveProjectId(null)
       setActiveSessionAndRef(null)
       setMessages([])
@@ -452,7 +506,7 @@ export function App() {
   }
 
   function handleNewStandaloneSession() {
-    setActiveAppId('donut')
+    navigateTo({ appId: 'donut' })
     setActiveProjectId(null)
     setActiveSessionAndRef(null)
     setMessages([])
@@ -463,7 +517,7 @@ export function App() {
     if (projSessions.length > 0) {
       await openSessionById(projSessions[0].id, projectId)
     } else {
-      setActiveAppId('donut')
+      navigateTo({ appId: 'donut' })
       setActiveProjectId(projectId)
       setActiveSessionAndRef(null)
       setMessages([])
@@ -471,7 +525,7 @@ export function App() {
   }
 
   function handleNewProjectSession(projectId: string) {
-    setActiveAppId('donut')
+    navigateTo({ appId: 'donut' })
     setActiveProjectId(projectId)
     setActiveSessionAndRef(null)
     setMessages([])
@@ -961,19 +1015,10 @@ export function App() {
     }
   }
 
-  async function handleSelectApp(app: PortalAppItem) {
-    if (app.type === 'internal') {
-      setActiveAppId(app.id)
-      return
-    }
-    setActiveAppId(app.id)
+  function handleSelectApp(app: PortalAppItem) {
+    // External apps are launched by the route-resolution effect once the hash points at them.
     setExternalLaunchUrl(null)
-    try {
-      const res = await api.launchApp(app.id)
-      setExternalLaunchUrl(res.url)
-    } catch {
-      setExternalLaunchUrl(app.path)
-    }
+    navigateTo({ appId: app.id })
   }
 
   async function handleLogout() {
@@ -989,7 +1034,7 @@ export function App() {
     liveMessagesCacheRef.current = {}
     setMessages([])
     setCompanionStatus(null)
-    setActiveAppId('donut')
+    navigateTo({ appId: 'donut' })
     setExternalLaunchUrl(null)
   }
 
@@ -1080,12 +1125,9 @@ export function App() {
         onAutoTitleSession={handleAutoTitleSession}
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
-        onOpenSettings={(sec) => {
-          setSettingsSection(sec)
-          setActiveAppId('settings')
-        }}
-        onOpenWorkbench={() => setActiveAppId('workbench')}
-        onOpenVault={() => setActiveAppId('vault')}
+        onOpenSettings={(sec) => navigateTo({ appId: 'settings', settingsSection: sec })}
+        onOpenWorkbench={() => navigateTo({ appId: 'workbench' })}
+        onOpenVault={() => navigateTo({ appId: 'vault' })}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}
         onLogout={handleLogout}
@@ -1254,7 +1296,11 @@ export function App() {
         ) : activeAppId === 'workbench' ? (
           <WorkbenchView
             user={user}
-            onOpenVault={() => setActiveAppId('vault')}
+            activeModule={workbenchModule}
+            onSelectModule={(moduleId) => navigateTo({ appId: 'workbench', workbenchModule: moduleId })}
+            onOpenQuickLedger={ledgerEnabled ? openQuickLedger : undefined}
+            onModulesUpdated={syncLedgerEnabled}
+            onOpenVault={() => navigateTo({ appId: 'vault' })}
             onToast={showToast}
             onChanged={() => refreshStatus()}
           />
@@ -1272,7 +1318,7 @@ export function App() {
               refreshStatus()
               showToast('个人与助手设定已更新')
             }}
-            onNavigateVault={() => setActiveAppId('vault')}
+            onNavigateVault={() => navigateTo({ appId: 'vault' })}
             onTeachInChat={() => handleSelectMainSession()}
             onChanged={() => refreshStatus()}
             onInstallApp={() => setPwaModalOpen(true)}
@@ -1289,6 +1335,7 @@ export function App() {
               streaming={Boolean(activeSessionId && streamingSessionId === activeSessionId)}
               onSend={handleSend}
               onStop={handleStop}
+              onOpenQuickLedger={ledgerEnabled ? openQuickLedger : undefined}
               onOpenProjectMemory={(pid) => setProjectModal({ open: true, projectId: pid })}
             />
             <CompanionPanel
@@ -1326,7 +1373,7 @@ export function App() {
           onSaved={(saved, created) => {
             if (created) {
               setProjects((prev) => [saved, ...prev])
-              setActiveAppId('donut')
+              navigateTo({ appId: 'donut' })
               setActiveProjectId(saved.id)
               setActiveSessionAndRef(null)
               setMessages([])
@@ -1353,6 +1400,21 @@ export function App() {
             refreshStatus()
           }}
           onClose={() => setProjectModal({ open: false, projectId: null })}
+        />
+      )}
+
+      {quickLedgerOpen && ledgerEnabled && (
+        <QuickLedgerModal
+          userId={user.id}
+          onClose={() => setQuickLedgerOpen(false)}
+          onOpenLedgerPage={() => {
+            setQuickLedgerOpen(false)
+            navigateTo({ appId: 'workbench', workbenchModule: 'ledger' })
+          }}
+          onSaved={(count) => {
+            setQuickLedgerOpen(false)
+            showToast(count > 0 ? `已记入 ${count} 笔` : '这几笔之前已经记过，没有重复保存')
+          }}
         />
       )}
 

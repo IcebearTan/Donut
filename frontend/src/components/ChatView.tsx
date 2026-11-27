@@ -20,6 +20,7 @@ import {
   Paperclip,
   Sparkles,
   Square,
+  Wallet,
   Wrench,
   X,
 } from 'lucide-react'
@@ -42,6 +43,8 @@ interface Props {
   onSend: (text: string, attachments: UploadedAttachment[]) => void
   onStop: () => void
   onOpenProjectMemory?: (projectId: string) => void
+  /** Opens the 0-token quick Ledger capture; absent when the Ledger extension is off. */
+  onOpenQuickLedger?: () => void
 }
 
 const TIME_GAP_MS = 5 * 60 * 1000 // 5 minutes between messages -> show Dot-style divider
@@ -771,6 +774,7 @@ const ChatComposer = memo(function ChatComposer({
   streaming,
   onSubmit,
   onStop,
+  onOpenQuickLedger,
 }: {
   sessionKey: string
   assistantName: string
@@ -778,6 +782,7 @@ const ChatComposer = memo(function ChatComposer({
   streaming: boolean
   onSubmit: (text: string, files: UploadedAttachment[]) => void
   onStop: () => void
+  onOpenQuickLedger?: () => void
 }) {
   const [input, setInput] = useState(() => loadDraft(sessionKey).text)
   const [pendingFiles, setPendingFiles] = useState<UploadedAttachment[]>(
@@ -977,6 +982,18 @@ const ChatComposer = memo(function ChatComposer({
           >
             {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
           </button>
+          {onOpenQuickLedger && (
+            <button
+              type="button"
+              onClick={onOpenQuickLedger}
+              title="随手记一笔（0 Token 离线速记 · Alt+L）"
+              data-testid="chat-quick-ledger-btn"
+              className="w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer shrink-0"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Wallet size={17} />
+            </button>
+          )}
 
           <textarea
             ref={textareaRef}
@@ -1049,6 +1066,7 @@ export function ChatView({
   onSend,
   onStop,
   onOpenProjectMemory,
+  onOpenQuickLedger,
 }: Props) {
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_MESSAGES)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -1254,6 +1272,7 @@ export function ChatView({
         streaming={streaming}
         onSubmit={handleComposerSubmit}
         onStop={onStop}
+        onOpenQuickLedger={onOpenQuickLedger}
       />
     </div>
   )

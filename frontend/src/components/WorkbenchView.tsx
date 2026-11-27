@@ -18,6 +18,11 @@ interface Props {
   onOpenVault: () => void
   onToast: (msg: string) => void
   onChanged?: () => void
+  /** Module restored from the URL hash; when given it wins over the remembered tab. */
+  activeModule?: string | null
+  onSelectModule?: (moduleId: string | null) => void
+  onOpenQuickLedger?: () => void
+  onModulesUpdated?: (modules: WorkbenchModuleItem[]) => void
 }
 
 function getInitialTab(userId: string): string {
@@ -30,8 +35,17 @@ function getInitialTab(userId: string): string {
   return 'focus'
 }
 
-export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) {
-  const [tab, setTab] = useState<string>(() => getInitialTab(user.id))
+export function WorkbenchView({
+  user,
+  onOpenVault,
+  onToast,
+  onChanged,
+  activeModule,
+  onSelectModule,
+  onOpenQuickLedger,
+  onModulesUpdated,
+}: Props) {
+  const [tab, setTab] = useState<string>(() => activeModule || getInitialTab(user.id))
   const [coreModules, setCoreModules] = useState<WorkbenchModuleItem[]>([
     {
       id: 'focus',
@@ -63,17 +77,23 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
       const res = await api.listWorkbenchModules()
       setCoreModules(res.core)
       setExtModules(res.modules)
+      onModulesUpdated?.(res.modules)
     } catch {
       // keep safe core fallback
     } finally {
       setLoadingMods(false)
     }
-  }, [])
+  }, [onModulesUpdated])
 
   useEffect(() => {
     setTab(getInitialTab(user.id))
     loadModules()
   }, [user.id, loadModules])
+
+  // URL hash drives the active module (refresh / back / forward / "打开完整账本").
+  useEffect(() => {
+    if (activeModule) setTab(activeModule)
+  }, [activeModule])
 
   const enabledExtensions = useMemo(
     () => extModules.filter((m) => m.enabled),
@@ -84,12 +104,13 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
     if (loadingMods) return
     const validIds = new Set(['focus', 'cron', ...enabledExtensions.map((m) => m.id)])
     if (!validIds.has(tab)) {
-      setTab('focus')
+      switchTab('focus')
     }
   }, [loadingMods, enabledExtensions, tab])
 
   function switchTab(next: string) {
     setTab(next)
+    onSelectModule?.(next)
     try {
       sessionStorage.setItem(`donut_workbench_tab_${user.id}`, next)
     } catch {
@@ -103,6 +124,7 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
       const res = await api.saveWorkbenchModules(items)
       setCoreModules(res.core)
       setExtModules(res.modules)
+      onModulesUpdated?.(res.modules)
       onToast('工作台扩展布局已更新')
     } catch (e) {
       onToast(e instanceof Error ? e.message : '保存扩展配置失败')
