@@ -171,7 +171,17 @@ export function App() {
 
   useEffect(() => {
     function onFrameMessage(e: MessageEvent) {
-      if (e.origin !== window.location.origin) return
+      const sameOrigin = e.origin === window.location.origin
+      let localDevOrigin = false
+      if (!sameOrigin && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+        try {
+          const parsed = new URL(e.origin)
+          localDevOrigin = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+        } catch {
+          localDevOrigin = false
+        }
+      }
+      if (!sameOrigin && !localDevOrigin) return
       const payload = e.data as { type?: string } | null
       if (payload?.type === 'iland:return-portal') {
         navigateTo({ appId: 'donut' })
