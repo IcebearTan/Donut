@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-RESERVED_IDS = {"focus", "cron", "manage", "modules", "reimbursements", "apps", "schedule"}
+RESERVED_IDS = {"focus", "cron", "manage", "modules", "reimbursements", "ledger", "apps", "schedule"}
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 VALID_TEMPLATES = {"checklist", "table", "cards", "markdown"}
 

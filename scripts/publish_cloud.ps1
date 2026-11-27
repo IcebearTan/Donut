@@ -49,15 +49,24 @@ tar -xzf /tmp/portal-release.tar.gz -C /opt/couple-space/portal
 rm -f /tmp/portal-release.tar.gz
 chown -R donut:donut /opt/couple-space/portal
 
-# Sync OpenClaw workbench-builder skill & tools to both user workspaces (isolated & non-destructive)
-if [ -d /opt/couple-space/portal/openclaw-skills/workbench-builder ]; then
+# Sync all official OpenClaw skills & CLI tools to both user workspaces (isolated & non-destructive)
+if [ -d /opt/couple-space/portal/openclaw-skills ]; then
   for ws in /home/donut/.openclaw/workspace /home/donut/.openclaw/workspace-her; do
     if [ -d "$ws" ]; then
-      mkdir -p "$ws/skills/workbench-builder" "$ws/tools"
-      cp -f /opt/couple-space/portal/openclaw-skills/workbench-builder/SKILL.md "$ws/skills/workbench-builder/SKILL.md"
-      cp -f /opt/couple-space/portal/openclaw-skills/workbench-builder/tools/*.py "$ws/tools/"
-      chmod +x "$ws/tools/"*.py
-      chown -R donut:donut "$ws/skills/workbench-builder" "$ws/tools"
+      mkdir -p "$ws/skills" "$ws/tools"
+      for sdir in /opt/couple-space/portal/openclaw-skills/*; do
+        [ -d "$sdir" ] || continue
+        sname="$(basename "$sdir")"
+        if [ -f "$sdir/SKILL.md" ]; then
+          mkdir -p "$ws/skills/$sname"
+          cp -f "$sdir/SKILL.md" "$ws/skills/$sname/SKILL.md"
+        fi
+        if [ -d "$sdir/tools" ]; then
+          cp -f "$sdir/tools/"*.py "$ws/tools/" 2>/dev/null || true
+        fi
+      done
+      chmod +x "$ws/tools/"*.py 2>/dev/null || true
+      chown -R donut:donut "$ws/skills" "$ws/tools"
     fi
   done
 fi

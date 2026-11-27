@@ -15,6 +15,7 @@ RESERVED_MODULE_IDS = {
     "manage",
     "modules",
     "reimbursements",
+    "ledger",
     "apps",
     "schedule",
 }

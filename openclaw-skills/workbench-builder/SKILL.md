@@ -32,8 +32,9 @@ description: 工作台造物与今日焦点同步技能。当用户要求「刷�
   {"title": "完成开题答辩 PPT 终稿", "urgency": "must", "tag": "论文", "tag_color": "rose", "countdown": "明天 10:00", "progress": "已完成 14/16 页"}
 ]'
 
-# 勾选完成 / 取消勾选 / 清理已完成
+# 勾选完成 / 删除单条 / 清理已完成
 /home/donut/.openclaw/tools-venv/bin/python tools/focus_sync.py done <item_id>
+/home/donut/.openclaw/tools-venv/bin/python tools/focus_sync.py delete <item_id>
 /home/donut/.openclaw/tools-venv/bin/python tools/focus_sync.py clear-done
 
 # 配置外部仓库快捷入口（如 Notion HQ、滴答清单）
@@ -45,7 +46,7 @@ description: 工作台造物与今日焦点同步技能。当用户要求「刷�
 ## 二、在工作台新建或更新微应用（`vault/workbench/apps/<app-id>/`）
 
 ### 目录与 ID 规范
-- `<app-id>` 仅限小写字母、数字、连字符或下划线（正则 `^[a-z0-9][a-z0-9_-]{0,47}$`），不可使用保留词（`focus`、`cron`、`manage`、`modules`、`reimbursements`、`apps`）。
+- `<app-id>` 仅限小写字母、数字、连字符或下划线（正则 `^[a-z0-9][a-z0-9_-]{0,47}$`），不可使用保留词（`focus`、`cron`、`manage`、`modules`、`reimbursements`、`ledger`、`apps`、`schedule`）。
 - 图标 `icon` 使用语义化矢量图标名（严禁 Emoji）：`pill`, `heart-pulse`, `check-square`, `table`, `layout-grid`, `file-text`, `book-open`, `calendar`, `wallet`, `dumbbell`, `coffee`, `target`, `list-todo`, `code`, `puzzle`, `sparkles`。
 
 ### 引擎 A · 声明式结构化模板（优先推荐！100% 原生质感与亮暗主题）

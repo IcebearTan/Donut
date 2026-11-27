@@ -44,6 +44,7 @@ from .persona import PERSONA_PRESETS, read_persona_files, write_persona_files
 from .projects import (
     append_project_memory,
     archive_project_dir,
+    build_project_opening_context,
     build_turn_instructions,
     ensure_project_files,
     make_safe_slug,
@@ -1205,6 +1206,11 @@ async def chat_stream(
 
     with db_session() as conn:
         sess = _require_owned_session(conn, body.session_id, user["id"])
+        prev_cnt_row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM chat_messages WHERE session_id = ?",
+            (body.session_id,),
+        ).fetchone()
+        is_first_turn = int(prev_cnt_row["cnt"]) == 0 if prev_cnt_row else True
         conn.execute(
             """
             INSERT INTO chat_messages (id, session_id, role, content, images_json, created_at)
@@ -1236,6 +1242,8 @@ async def chat_stream(
     # Append per-turn uploaded file paths at the TAIL of the user message payload.
     ensure_user_vault(user["id"])
     openclaw_text = text or ("请帮我看看这些附件" if doc_paths else "请帮我看看这张图片")
+    if is_first_turn and active_project is not None:
+        openclaw_text += build_project_opening_context(user["id"], active_project)
     all_attached = [*image_paths, *doc_paths]
     if all_attached:
         paths_list = "\n".join(f"- {p}" for p in all_attached)

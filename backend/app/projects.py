@@ -145,31 +145,36 @@ def build_turn_instructions(
     all_projects: list[dict[str, Any]],
 ) -> str:
     """
-    Build concise OpenResponses `instructions` for each turn:
-      - Inside a Project: focus deeply on that project's BRIEF.md + MEMORY.md
-      - In Main Chat / General Chat: mount projects/_index.md so Donut can roam across all projects ("游龙")
+    Keep OpenResponses `instructions` 100% STATIC across turns for maximum DeepSeek KV-cache hit rate!
+      - Inside a Project: only inject stable project metadata & file paths (never volatile MEMORY.md content)
+      - In Main / General Chat: return empty string so workspace AGENTS.md prefix stays completely static
     """
+    _ = (user_id, all_projects)
     if active_project is not None:
         slug = active_project["slug"]
-        files = read_project_files(user_id, slug)
-        brief = files["brief_md"].strip()[:2500]
-        mem = files["memory_md"].strip()[-3500:]
-        parts = [
-            f"【当前项目空间：{active_project.get('emoji', '📁')} {active_project['name']}】",
-            f"工作区路径：`projects/{slug}/BRIEF.md` 与 `projects/{slug}/MEMORY.md`。",
-            "请紧扣本项目的背景与已有记忆来回答，保持上下文连续性。",
-            "如果用户在本轮中作出了重要决策、更新了进度或让你记住某事，请主动使用工作区文件工具追加写入 `projects/"
-            + slug
-            + "/MEMORY.md`（不要覆盖旧记录）。",
-            "",
-            "--- BRIEF.md ---",
-            brief or "（空）",
-            "",
-            "--- MEMORY.md（近期沉淀）---",
-            mem or "（暂无沉淀）",
-        ]
-        return "\n".join(parts)
-
-    # In Main Chat / standalone chat, keep system prompt prefix 100% STATIC for maximum DeepSeek KV-cache hit rate!
-    # Static workspace AGENTS.md instructs Donut to read `projects/_index.md` on demand when the user mentions projects.
+        return "\n".join(
+            [
+                f"【当前项目空间：{active_project.get('emoji', '📁')} {active_project['name']}】",
+                f"项目目录：`projects/{slug}/`（背景 `BRIEF.md`，沉淀记忆 `MEMORY.md`）。",
+                "请紧扣本项目目标回答；如本轮产生重要决策、阶段进展或用户要求记住的事项，请追加写入 "
+                f"`projects/{slug}/MEMORY.md`（切勿覆盖旧记录）。如需查阅最新项目背景或历史沉淀，可按需读取上述文件。",
+            ]
+        )
     return ""
+
+
+def build_project_opening_context(user_id: str, active_project: dict[str, Any] | None) -> str:
+    """One-time snapshot appended ONLY to the first user message of a project session (preserves KV-cache on all subsequent turns)."""
+    if active_project is None:
+        return ""
+    slug = active_project["slug"]
+    files = read_project_files(user_id, slug)
+    brief = files["brief_md"].strip()[:2000]
+    mem = files["memory_md"].strip()[-2500:]
+    if not brief and not mem:
+        return ""
+    return (
+        f"\n\n[项目首轮上下文快照 — `projects/{slug}/`]\n"
+        f"--- BRIEF.md ---\n{brief or '（空）'}\n\n"
+        f"--- MEMORY.md（近期沉淀）---\n{mem or '（暂无沉淀）'}"
+    )
