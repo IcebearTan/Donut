@@ -1230,49 +1230,52 @@ export function App() {
 
         {/* Native-grade mobile top bar:
             - Chat view ('donut'): taller, mathematically centered larger Donut hero avatar, borderless top-down gradient fade
-            - Full pages ('vault' / 'skills' / 'settings' / external app): crisp borderless/minimal header with page title */}
+            - I-land ('iland'): hidden for full-screen immersion (I-land has its own depart & return-to-Donut flow)
+            - Full pages ('vault' / 'workbench' / 'settings' / other external apps): crisp borderless/minimal header with page title */}
         {activeAppId !== 'donut' ? (
-          <div
-            className="lg:hidden safe-pt shrink-0 relative z-10"
-            style={{
-              background: 'var(--bg-page)',
-              borderBottom: '1px solid var(--border-subtle)',
-            }}
-          >
-            <div className="h-12 px-3 grid grid-cols-[1fr_auto_1fr] items-center">
-              <button
-                type="button"
-                onClick={() => setMobileSidebarOpen(true)}
-                data-testid="mobile-menu-btn"
-                aria-label="打开侧边栏"
-                className="justify-self-start w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <Menu size={19} />
-              </button>
+          activeExternalApp?.id === 'iland' ? null : (
+            <div
+              className="lg:hidden safe-pt shrink-0 relative z-10"
+              style={{
+                background: 'var(--bg-page)',
+                borderBottom: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div className="h-12 px-3 grid grid-cols-[1fr_auto_1fr] items-center">
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  data-testid="mobile-menu-btn"
+                  aria-label="打开侧边栏"
+                  className="justify-self-start w-9 h-9 rounded-full flex items-center justify-center sidebar-row pressable cursor-pointer"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <Menu size={19} />
+                </button>
 
-              <div className="justify-self-center flex items-center gap-1.5 min-w-0">
-                {activeExternalApp ? (
-                  <>
-                    <span className="text-base leading-none shrink-0">{activeExternalApp.emoji}</span>
-                    <span className="text-[14.5px] font-semibold tracking-tight truncate">
-                      {activeExternalApp.shortName}
+                <div className="justify-self-center flex items-center gap-1.5 min-w-0">
+                  {activeExternalApp ? (
+                    <>
+                      <span className="text-base leading-none shrink-0">{activeExternalApp.emoji}</span>
+                      <span className="text-[14.5px] font-semibold tracking-tight truncate">
+                        {activeExternalApp.shortName}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[15px] font-semibold tracking-tight truncate">
+                      {activeAppId === 'workbench'
+                        ? '工作台'
+                        : activeAppId === 'vault'
+                          ? '我的文件仓'
+                          : '个人主页与设置'}
                     </span>
-                  </>
-                ) : (
-                  <span className="text-[15px] font-semibold tracking-tight truncate">
-                    {activeAppId === 'workbench'
-                      ? '工作台'
-                      : activeAppId === 'vault'
-                        ? '我的文件仓'
-                        : '个人主页与设置'}
-                  </span>
-                )}
-              </div>
+                  )}
+                </div>
 
-              <div />
+                <div />
+              </div>
             </div>
-          </div>
+          )
         ) : (
           <header
             data-testid="mobile-gradient-header"
