@@ -169,6 +169,18 @@ export function App() {
     }
   }, [showToast])
 
+  useEffect(() => {
+    function onFrameMessage(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return
+      const payload = e.data as { type?: string } | null
+      if (payload?.type === 'iland:return-portal') {
+        navigateTo({ appId: 'donut' })
+      }
+    }
+    window.addEventListener('message', onFrameMessage)
+    return () => window.removeEventListener('message', onFrameMessage)
+  }, [navigateTo])
+
   const refreshStatus = useCallback(async () => {
     setLoadingStatus(true)
     try {
@@ -1283,6 +1295,7 @@ export function App() {
                 key={externalLaunchUrl}
                 src={externalLaunchUrl}
                 title={activeExternalApp.name}
+                allow="autoplay"
                 className="w-full h-full border-0"
               />
             ) : (
