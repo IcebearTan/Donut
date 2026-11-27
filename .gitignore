@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 .venv/
 backend/data/
+backend/.secret
+backend/vault/
+backend/uploads/
+backend/generated/
 
 # Node / Frontend
 frontend/node_modules/

@@ -93,7 +93,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Couple Space Portal", lifespan=lifespan)
+app = FastAPI(title="Donut API", lifespan=lifespan)
 app.include_router(workbench_router)
 # CSRF origin check on mutating /portal-api/* calls + nosniff / no-referrer response headers.
 app.add_middleware(SecurityMiddleware)
