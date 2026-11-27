@@ -131,6 +131,9 @@ def main() -> int:
     p_done.add_argument("id")
     p_done.add_argument("--undo", action="store_true")
 
+    p_del = sub.add_parser("delete", help="Delete a single focus item by id")
+    p_del.add_argument("id")
+
     sub.add_parser("clear-done", help="Remove all completed focus items")
 
     p_links = sub.add_parser("set-links", help="Configure external quick-access links")
@@ -227,6 +230,15 @@ def main() -> int:
                 print(json.dumps({"ok": True, "id": args.id, "done": cur["done"]}, ensure_ascii=False))
                 return 0
         raise SystemExit(f"Focus item not found: {args.id}")
+
+    if args.cmd == "delete":
+        before = len(doc["items"])
+        doc["items"] = [x for x in doc["items"] if x.get("id") != args.id]
+        if len(doc["items"]) == before:
+            raise SystemExit(f"Focus item not found: {args.id}")
+        save_doc(focus_path, doc)
+        print(json.dumps({"ok": True, "deleted": args.id}, ensure_ascii=False))
+        return 0
 
     if args.cmd == "clear-done":
         before = len(doc["items"])
