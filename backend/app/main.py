@@ -12,7 +12,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
@@ -24,6 +24,7 @@ from .auth import (
     hash_password,
     seed_users,
     set_auth_cookie,
+    stored_token_version,
     verify_password,
 )
 from .config import (
@@ -49,6 +50,7 @@ from .projects import (
     read_project_files,
     rebuild_projects_index,
 )
+from .rate_limit import SlidingWindowLimiter, extract_client_ip
 from .activity import get_user_year_activity
 from .cron_service import (
     create_user_cron_job,
@@ -59,6 +61,7 @@ from .cron_service import (
     update_user_cron_job,
 )
 from .runs import cancel_active_run, get_active_run, start_detached_run
+from .security_middleware import SecurityMiddleware
 from .status import get_companion_status
 from .titler import generate_smart_title
 from .workbench_routes import router as workbench_router
@@ -92,6 +95,13 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Couple Space Portal", lifespan=lifespan)
 app.include_router(workbench_router)
+# CSRF origin check on mutating /portal-api/* calls + nosniff / no-referrer response headers.
+app.add_middleware(SecurityMiddleware)
+
+# Login / password throttling. In-memory per worker process; keys never contain passwords.
+login_ip_limiter = SlidingWindowLimiter()  # "ip:<client ip>"
+login_account_limiter = SlidingWindowLimiter()  # "acct:<user id>"
+password_limiter = SlidingWindowLimiter()  # "acct:<user id>" for wrong current-password tries
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +122,7 @@ class ProfileUpdateRequest(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
-    new_password: str = Field(min_length=4, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 @app.get("/portal-api/auth/users")
@@ -126,16 +136,28 @@ def list_login_hints() -> dict:
 
 
 @app.post("/portal-api/auth/login")
-def login(body: LoginRequest, response: Response) -> dict:
+def login(body: LoginRequest, request: Request, response: Response) -> dict:
     name = body.name.strip()
     with db_session() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE display_name = ? OR id = ?",
             (name, name),
         ).fetchone()
+    # Throttle per source IP and, for real accounts, per account. The account bucket is keyed by
+    # the stable id, so the display name and the id cannot buy an attacker two separate tries.
+    attempts = [(login_ip_limiter, f"ip:{extract_client_ip(request)}")]
+    if row:
+        attempts.append((login_account_limiter, f"acct:{row['id']}"))
+    for limiter, key in attempts:
+        if not limiter.check_allowed(key):
+            raise limiter.locked_error(key)
     if not row or not verify_password(body.password, row["pass_hash"]):
+        for limiter, key in attempts:
+            limiter.record_failure(key)
         raise HTTPException(status_code=401, detail="账号名或暗号不正确")
-    set_auth_cookie(response, row["id"])
+    for limiter, key in attempts:
+        limiter.reset(key)
+    set_auth_cookie(response, row["id"], stored_token_version(row))
     return {
         "user": {
             "id": row["id"],
@@ -149,6 +171,18 @@ def login(body: LoginRequest, response: Response) -> dict:
 
 @app.post("/portal-api/auth/logout")
 def logout(response: Response) -> dict:
+    clear_auth_cookie(response)
+    return {"ok": True}
+
+
+@app.post("/portal-api/auth/logout-all")
+def logout_all(response: Response, user: dict = Depends(get_current_user)) -> dict:
+    """Sign out every device: bumps token_version, so all previously issued cookies stop working."""
+    with db_session() as conn:
+        conn.execute(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = ?",
+            (user["id"],),
+        )
     clear_auth_cookie(response)
     return {"ok": True}
 
@@ -194,18 +228,29 @@ def update_profile(
 
 @app.post("/portal-api/auth/password")
 def change_password(
-    body: PasswordChangeRequest, user: dict = Depends(get_current_user)
+    body: PasswordChangeRequest,
+    request: Request,
+    response: Response,
+    user: dict = Depends(get_current_user),
 ) -> dict:
+    key = f"acct:{user['id']}"
+    if not password_limiter.check_allowed(key):
+        raise password_limiter.locked_error(key)
     with db_session() as conn:
         row = conn.execute(
-            "SELECT pass_hash FROM users WHERE id = ?", (user["id"],)
+            "SELECT pass_hash, token_version FROM users WHERE id = ?", (user["id"],)
         ).fetchone()
         if not row or not verify_password(body.current_password, row["pass_hash"]):
+            password_limiter.record_failure(key)
             raise HTTPException(status_code=400, detail="当前暗号不正确")
+        # Revokes every other cookie of this user; the caller gets a fresh one below.
+        token_version = stored_token_version(row) + 1
         conn.execute(
-            "UPDATE users SET pass_hash = ? WHERE id = ?",
-            (hash_password(body.new_password), user["id"]),
+            "UPDATE users SET pass_hash = ?, token_version = ? WHERE id = ?",
+            (hash_password(body.new_password), token_version, user["id"]),
         )
+    password_limiter.reset(key)
+    set_auth_cookie(response, user["id"], token_version)
     return {"ok": True}
 
 

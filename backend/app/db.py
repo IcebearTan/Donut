@@ -40,7 +40,8 @@ def init_db() -> None:
                 avatar_emoji TEXT NOT NULL DEFAULT '🐻',
                 assistant_name TEXT NOT NULL DEFAULT 'Donut',
                 assistant_emoji TEXT NOT NULL DEFAULT '🍩',
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                token_version INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS projects (
@@ -110,6 +111,11 @@ def init_db() -> None:
         if "assistant_emoji" not in user_cols:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN assistant_emoji TEXT NOT NULL DEFAULT '🍩'"
+            )
+        # Bumped on password change / logout-all to revoke every previously issued session cookie.
+        if "token_version" not in user_cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1"
             )
 
         sess_cols = {

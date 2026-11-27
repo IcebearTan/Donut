@@ -22,9 +22,10 @@
 - Do NOT run cloud deployment (`publish_cloud.ps1`) unless explicitly instructed; leave git working tree clean or ready for review.
 
 ## 4. Verification Commands
-- Frontend build check (run inside WSL2 where `node_modules` lives, or `pnpm` if installed):
-  `wsl -d OpenClaw -- bash /mnt/d/OpenClaw/portal/scripts/build_portal_bundle.sh`
-  (delete `/mnt/d/OpenClaw/portal-release.tar.gz` afterwards if just testing build).
-- Backend syntax & tests (WSL2 Python 3.12):
-  `wsl -d OpenClaw -- python3 -m py_compile /mnt/d/OpenClaw/portal/backend/app/*.py`
-  `wsl -d OpenClaw -- python3 -m unittest discover -s /mnt/d/OpenClaw/portal/backend/tests -v`
+- **IMPORTANT (Git Bash / MSYS path rule)**: Always prefix `wsl` commands with `MSYS_NO_PATHCONV=1` so Git Bash does not mangle `/mnt/d/...` or `/home/...` paths!
+- Backend Python venv in WSL2 (has `fastapi`, `pydantic`, `starlette`, `pillow`, etc.):
+  `MSYS_NO_PATHCONV=1 wsl -d OpenClaw -- /home/openclaw/portal-venv/bin/python3 -m py_compile /mnt/d/OpenClaw/portal/backend/app/*.py`
+  `MSYS_NO_PATHCONV=1 wsl -d OpenClaw -- /home/openclaw/portal-venv/bin/python3 -m unittest discover -s /mnt/d/OpenClaw/portal/backend/tests -v`
+- Frontend build check (WSL2 `~/portal-fe-build` has `node_modules` pre-installed):
+  `MSYS_NO_PATHCONV=1 wsl -d OpenClaw -- bash /mnt/d/OpenClaw/portal/scripts/build_portal_bundle.sh`
+  (delete `/mnt/d/OpenClaw/portal-release.tar.gz` afterwards if just verifying build).
