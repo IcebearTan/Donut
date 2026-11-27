@@ -103,6 +103,10 @@ export function SettingsModal({
   async function savePassword(e: React.FormEvent) {
     e.preventDefault()
     if (!curPw || !newPw) return
+    if (newPw.length < 8) {
+      setErr('新暗号至少需要 8 位')
+      return
+    }
     setMsg('')
     setErr('')
     setSaving(true)
@@ -412,7 +416,7 @@ export function SettingsModal({
                 type="password"
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
-                placeholder="新暗号（至少 4 位）"
+                placeholder="新暗号（至少 8 位）"
                 className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                 style={{
                   background: 'var(--bg-page)',
@@ -422,7 +426,7 @@ export function SettingsModal({
               />
               <button
                 type="submit"
-                disabled={saving || !curPw || newPw.length < 4}
+                disabled={saving || !curPw || newPw.length < 8}
                 className="px-4 py-2 rounded-xl text-xs font-medium disabled:opacity-40 cursor-pointer"
                 style={{
                   background: 'var(--bg-elevated)',

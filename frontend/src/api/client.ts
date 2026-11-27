@@ -403,6 +403,157 @@ export type StreamEvent =
   | { type: 'done'; usage?: ChatMessage['usage'] }
   | { type: 'error'; message: string }
 
+// ---------------------------------------------------------------------------
+// Ledger (随手记账) — mirrors backend/app/workbench_ledger*.py response schemas
+// ---------------------------------------------------------------------------
+
+export type LedgerSource = 'quick' | 'ocr' | 'wechat_import' | 'alipay_import' | 'manual'
+
+/** Sanitized, PII-stripped item produced by quick-parse / ocr-parse / import-bill preview. */
+export interface LedgerDraftItem {
+  occurred_date: string
+  month: string
+  amount: number
+  category: string
+  merchant: string
+  payment_method: string
+  note: string
+  source: LedgerSource
+  fingerprint: string
+}
+
+/** Request body item for POST /ledger/entries (LedgerEntryPayload). */
+export interface LedgerEntryInput {
+  occurred_date: string
+  amount: number
+  category: string
+  merchant: string
+  payment_method: string
+  note: string
+  source: LedgerSource
+  fingerprint: string
+}
+
+/** PATCH /ledger/entries/{id} body (LedgerEntryPatchPayload); omitted fields stay unchanged. */
+export interface LedgerEntryPatch {
+  occurred_date?: string
+  amount?: number
+  category?: string
+  merchant?: string
+  payment_method?: string
+  note?: string
+}
+
+export interface LedgerEntry extends LedgerEntryInput {
+  id: string
+  month: string
+  created_at: number
+  updated_at: number
+}
+
+export interface LedgerSettings {
+  monthly_budget: number
+  strict_offline: boolean
+}
+
+export interface LedgerOverview {
+  month: string
+  available_months: string[]
+  settings: LedgerSettings
+  summary: {
+    month_total: number
+    count: number
+    daily_avg: number
+    budget: number
+    budget_remaining: number
+    budget_pct: number
+    daily_allowance: number
+  }
+  categories: Array<{ name: string; total: number; count: number; pct: number }>
+  hidden_leaks: Array<{ label: string; count: number; total: number; avg: number }>
+  top_expenses: Array<{
+    id: string
+    amount: number
+    category: string
+    merchant: string
+    occurred_date: string
+  }>
+  entries: LedgerEntry[]
+}
+
+export interface LedgerCreateResult {
+  ok: boolean
+  inserted: LedgerEntry[]
+  skipped: number
+}
+
+export interface LedgerOcrParseResponse {
+  items: LedgerDraftItem[]
+  raw_preview_sanitized: string
+}
+
+export interface LedgerBillSkipped {
+  refund: number
+  transfer: number
+  income: number
+  neutral: number
+  invalid: number
+}
+
+interface LedgerBillImportStats {
+  provider: string
+  format: string
+  count: number
+  total: number
+  skipped: LedgerBillSkipped
+}
+
+/** import-bill with dry_run=1: marks rows already stored so nothing is double-imported. */
+export interface LedgerBillImportPreview extends LedgerBillImportStats {
+  items: Array<LedgerDraftItem & { duplicate: boolean }>
+  dry_run: true
+  new_count: number
+}
+
+export interface LedgerBillImportResult extends LedgerBillImportStats {
+  dry_run: false
+  inserted: number
+  skipped_duplicates: number
+}
+
+/** FastAPI 422 emits `detail` as a list of {loc, msg, type}; turn it into a readable sentence. */
+function formatErrorDetail(detail: unknown): string {
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (!item || typeof item !== 'object') return String(item)
+        const err = item as { loc?: unknown; msg?: unknown }
+        const path = Array.isArray(err.loc)
+          ? err.loc
+              .filter((seg) => seg !== 'body')
+              .map((seg) => (typeof seg === 'number' ? `第 ${seg + 1} 条` : String(seg)))
+              .join(' ')
+          : ''
+        const msg = typeof err.msg === 'string' ? err.msg : JSON.stringify(err)
+        return path ? `${path}: ${msg}` : msg
+      })
+      .filter(Boolean)
+    return parts.join('；')
+  }
+  if (detail !== null && typeof detail === 'object') return JSON.stringify(detail)
+  return detail === undefined || detail === null ? '' : String(detail)
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  const fallback = `HTTP ${res.status}`
+  try {
+    const err = await res.json()
+    return formatErrorDetail(err?.detail) || fallback
+  } catch {
+    return fallback
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     credentials: 'same-origin',
@@ -412,18 +563,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers || {}),
     },
   })
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const err = await res.json()
-      if (err?.detail) detail = String(err.detail)
-    } catch {
-      // ignore
-    }
-    throw new Error(detail)
-  }
+  if (!res.ok) throw new Error(await readErrorDetail(res))
   return res.json() as Promise<T>
 }
+
+const LEDGER_BASE = '/portal-api/workbench/ledger'
 
 export const api = {
   getLoginHints: () => request<{ users: LoginHintUser[] }>('/portal-api/auth/users'),
@@ -747,6 +891,68 @@ export const api = {
   deleteMicroApp: (appId: string) =>
     request<{ ok: boolean }>(`/portal-api/workbench/apps/${encodeURIComponent(appId)}`, {
       method: 'DELETE',
+    }),
+  logoutAll: () => request<{ ok: boolean }>('/portal-api/auth/logout-all', { method: 'POST' }),
+  getLedger: (month?: string) =>
+    request<LedgerOverview>(
+      month ? `${LEDGER_BASE}?month=${encodeURIComponent(month)}` : LEDGER_BASE,
+    ),
+  createLedgerEntries: (items: LedgerEntryInput[]) =>
+    request<LedgerCreateResult>(`${LEDGER_BASE}/entries`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
+  updateLedgerEntry: (entryId: string, patch: LedgerEntryPatch) =>
+    request<{ ok: boolean; item: LedgerEntry }>(
+      `${LEDGER_BASE}/entries/${encodeURIComponent(entryId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    ),
+  deleteLedgerEntry: (entryId: string) =>
+    request<{ ok: boolean; id: string }>(
+      `${LEDGER_BASE}/entries/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    ),
+  updateLedgerSettings: (payload: { monthly_budget?: number; strict_offline?: boolean }) =>
+    request<{ ok: boolean; settings: LedgerSettings }>(`${LEDGER_BASE}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  quickParseLedger: (text: string) =>
+    request<{ items: LedgerDraftItem[] }>(`${LEDGER_BASE}/quick-parse`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  ocrParseLedger: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<LedgerOcrParseResponse>(`${LEDGER_BASE}/ocr-parse`, {
+      method: 'POST',
+      body: form,
+    })
+  },
+  importLedgerBill: async <D extends boolean>(
+    file: File,
+    dryRun: D,
+  ): Promise<D extends true ? LedgerBillImportPreview : LedgerBillImportResult> => {
+    const form = new FormData()
+    form.append('file', file)
+    return request(`${LEDGER_BASE}/import-bill${dryRun ? '?dry_run=1' : ''}`, {
+      method: 'POST',
+      body: form,
+    })
+  },
+  exportLedgerCsv: async (month?: string) => {
+    const res = await fetch(
+      `${LEDGER_BASE}/export-csv${month ? `?month=${encodeURIComponent(month)}` : ''}`,
+      { credentials: 'same-origin' },
+    )
+    if (!res.ok) throw new Error(await readErrorDetail(res))
+    return res.blob()
+  },
+  wipeLedger: () =>
+    request<{ ok: boolean; removed: number }>(`${LEDGER_BASE}/wipe`, {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm: 'WIPE' }),
     }),
   getAnnualActivity: (year?: number) =>
     request<AnnualActivityResponse>(

@@ -8,6 +8,7 @@ import {
 import { CronView } from './CronView'
 import { ReimbursementTab } from './ReimbursementTab'
 import { FocusTab } from './workbench/FocusTab'
+import { LedgerTab } from './workbench/ledger/LedgerTab'
 import { WorkbenchIcon } from './workbench/iconMap'
 import { MicroAppHost } from './workbench/MicroAppHost'
 import { ModuleManagerModal } from './workbench/ModuleManagerModal'
@@ -215,7 +216,8 @@ export function WorkbenchView({ user, onOpenVault, onToast, onChanged }: Props) 
         {tab === 'reimbursements' && activeExtension && (
           <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
         )}
-        {activeExtension && tab !== 'reimbursements' && (
+        {tab === 'ledger' && activeExtension && <LedgerTab userId={user.id} onToast={onToast} />}
+        {activeExtension && tab !== 'reimbursements' && tab !== 'ledger' && (
           <MicroAppHost module={activeExtension} onToast={onToast} />
         )}
       </div>
