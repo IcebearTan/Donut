@@ -1126,7 +1126,8 @@ export function App() {
         onDeleteSession={handleDeleteSession}
         onSetTheme={setTheme}
         onOpenSettings={(sec) => navigateTo({ appId: 'settings', settingsSection: sec })}
-        onOpenWorkbench={() => navigateTo({ appId: 'workbench' })}
+        // The sidebar always lands on the hub overview, even when already inside a module.
+        onOpenWorkbench={() => navigateTo({ appId: 'workbench', workbenchModule: null })}
         onOpenVault={() => navigateTo({ appId: 'vault' })}
         showInstallApp={!standalone}
         onInstallApp={() => setPwaModalOpen(true)}

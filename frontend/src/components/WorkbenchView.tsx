@@ -1,75 +1,62 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Loader2, SlidersHorizontal } from 'lucide-react'
-import {
-  api,
-  type UserProfile,
-  type WorkbenchModuleItem,
-} from '../api/client'
+import { api, type UserProfile, type WorkbenchModuleItem } from '../api/client'
 import { CronView } from './CronView'
 import { ReimbursementTab } from './ReimbursementTab'
 import { FocusTab } from './workbench/FocusTab'
 import { LedgerTab } from './workbench/ledger/LedgerTab'
-import { WorkbenchIcon } from './workbench/iconMap'
 import { MicroAppHost } from './workbench/MicroAppHost'
 import { ModuleManagerModal } from './workbench/ModuleManagerModal'
+import { WorkbenchBreadcrumb } from './workbench/WorkbenchBreadcrumb'
+import { CORE_FALLBACK } from './workbench/coreModules'
+import { WorkbenchHub } from './workbench/WorkbenchHub'
 
 interface Props {
   user: UserProfile
   onOpenVault: () => void
   onToast: (msg: string) => void
   onChanged?: () => void
-  /** Module restored from the URL hash; when given it wins over the remembered tab. */
+  /** `null` shows the hub overview; any other value is a module id from the URL hash. */
   activeModule?: string | null
   onSelectModule?: (moduleId: string | null) => void
   onOpenQuickLedger?: () => void
   onModulesUpdated?: (modules: WorkbenchModuleItem[]) => void
 }
 
-function getInitialTab(userId: string): string {
-  try {
-    const saved = sessionStorage.getItem(`donut_workbench_tab_${userId}`)
-    if (saved) return saved
-  } catch {
-    // ignore
-  }
-  return 'focus'
-}
-
+/**
+ * Two-mode shell: the hub overview (`activeModule === null`) or one immersive module
+ * behind a breadcrumb. The route drives the mode when `onSelectModule` is given.
+ */
 export function WorkbenchView({
   user,
   onOpenVault,
   onToast,
   onChanged,
-  activeModule,
+  activeModule: activeModuleProp,
   onSelectModule,
   onOpenQuickLedger,
   onModulesUpdated,
 }: Props) {
-  const [tab, setTab] = useState<string>(() => activeModule || getInitialTab(user.id))
-  const [coreModules, setCoreModules] = useState<WorkbenchModuleItem[]>([
-    {
-      id: 'focus',
-      kind: 'core',
-      name: '今日焦点',
-      description: '',
-      icon: 'focus',
-      enabled: true,
-      removable: false,
-    },
-    {
-      id: 'cron',
-      kind: 'core',
-      name: '定时任务',
-      description: '',
-      icon: 'clock',
-      enabled: true,
-      removable: false,
-    },
-  ])
+  // Fallback for callers that do not route: the view remembers the module itself.
+  const [localModule, setLocalModule] = useState<string | null>(null)
+  const activeModule = onSelectModule
+    ? activeModuleProp ?? null
+    : activeModuleProp !== undefined
+      ? activeModuleProp
+      : localModule
+
+  const [coreModules, setCoreModules] = useState<WorkbenchModuleItem[]>(CORE_FALLBACK)
   const [extModules, setExtModules] = useState<WorkbenchModuleItem[]>([])
   const [loadingMods, setLoadingMods] = useState(true)
   const [savingMods, setSavingMods] = useState(false)
   const [managerOpen, setManagerOpen] = useState(false)
+
+  const select = useCallback(
+    (next: string | null) => {
+      if (!onSelectModule) setLocalModule(next)
+      onSelectModule?.(next)
+    },
+    [onSelectModule],
+  )
 
   const loadModules = useCallback(async () => {
     setLoadingMods(true)
@@ -79,45 +66,30 @@ export function WorkbenchView({
       setExtModules(res.modules)
       onModulesUpdated?.(res.modules)
     } catch {
-      // keep safe core fallback
+      // keep the safe core fallback
     } finally {
       setLoadingMods(false)
     }
   }, [onModulesUpdated])
 
   useEffect(() => {
-    setTab(getInitialTab(user.id))
     loadModules()
   }, [user.id, loadModules])
-
-  // URL hash drives the active module (refresh / back / forward / "打开完整账本").
-  useEffect(() => {
-    if (activeModule) setTab(activeModule)
-  }, [activeModule])
 
   const enabledExtensions = useMemo(
     () => extModules.filter((m) => m.enabled),
     [extModules],
   )
 
+  // A module can disappear (disabled, deleted, bad hash): land on the hub instead of a blank pane.
   useEffect(() => {
-    if (loadingMods) return
-    const validIds = new Set(['focus', 'cron', ...enabledExtensions.map((m) => m.id)])
-    if (!validIds.has(tab)) {
-      switchTab('focus')
-    }
-  }, [loadingMods, enabledExtensions, tab])
+    if (loadingMods || activeModule === null) return
+    const known =
+      coreModules.some((m) => m.id === activeModule) || enabledExtensions.some((m) => m.id === activeModule)
+    if (!known) select(null)
+  }, [loadingMods, activeModule, coreModules, enabledExtensions, select])
 
-  function switchTab(next: string) {
-    setTab(next)
-    onSelectModule?.(next)
-    try {
-      sessionStorage.setItem(`donut_workbench_tab_${user.id}`, next)
-    } catch {
-      // ignore
-    }
-  }
-
+  // Resolves only after the new layout is applied, so the manager keeps its buttons disabled meanwhile.
   async function handleSaveModules(items: Array<{ id: string; enabled: boolean }>) {
     setSavingMods(true)
     try {
@@ -137,110 +109,52 @@ export function WorkbenchView({
     try {
       await api.deleteMicroApp(appId)
       await loadModules()
-      if (tab === appId) switchTab('focus')
       onToast('微应用已删除')
     } catch (e) {
       onToast(e instanceof Error ? e.message : '删除微应用失败')
     }
   }
 
-  const activeExtension = enabledExtensions.find((m) => m.id === tab) || null
+  function renderModule(id: string) {
+    const extension = enabledExtensions.find((m) => m.id === id)
+    if (id === 'focus') return <FocusTab onToast={onToast} />
+    if (id === 'cron') return <CronView user={user} embedded onChanged={onChanged} />
+    if (id === 'reimbursements' && extension) {
+      return <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
+    }
+    if (id === 'ledger' && extension) return <LedgerTab userId={user.id} onToast={onToast} />
+    return extension ? <MicroAppHost module={extension} onToast={onToast} /> : null
+  }
 
   return (
     <div data-testid="workbench-page" className="chat-scroll flex-1 min-h-0 overflow-y-auto">
       <div className="max-w-6xl mx-auto px-4 sm:px-8 pt-6 sm:pt-8 pb-14 space-y-6">
-        {/* Header + Dynamic Per-User Tab Strip */}
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">工作台</h1>
-            <p className="text-[13.5px]" style={{ color: 'var(--text-muted)' }}>
-              今日焦点、自动巡检与按需扩展的个人专属工作模块
-            </p>
-          </div>
-
-          <div
-            className="inline-flex flex-wrap items-center gap-1 p-1 rounded-2xl self-start lg:self-auto max-w-full"
-            style={{
-              background: 'var(--bg-sidebar)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            {coreModules.map((m) => {
-              const active = tab === m.id
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  data-testid={`workbench-tab-${m.id}`}
-                  onClick={() => switchTab(m.id)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-all pressable cursor-pointer"
-                  style={{
-                    background: active ? 'var(--bg-surface)' : 'transparent',
-                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                  }}
-                >
-                  <WorkbenchIcon name={m.icon} size={15} />
-                  <span>{m.name}</span>
-                </button>
-              )
-            })}
-
-            {enabledExtensions.length > 0 && (
-              <span
-                className="h-4 w-px mx-0.5 shrink-0"
-                style={{ background: 'var(--border-strong)' }}
-                aria-hidden="true"
-              />
-            )}
-
-            {enabledExtensions.map((m) => {
-              const active = tab === m.id
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  data-testid={`workbench-tab-${m.id}`}
-                  onClick={() => switchTab(m.id)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition-all pressable cursor-pointer"
-                  style={{
-                    background: active ? 'var(--bg-surface)' : 'transparent',
-                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                    boxShadow: active ? 'var(--shadow-sm)' : 'none',
-                  }}
-                >
-                  <WorkbenchIcon name={m.icon} size={15} />
-                  <span>{m.name}</span>
-                </button>
-              )
-            })}
-
-            <button
-              type="button"
-              data-testid="workbench-manage-modules-btn"
-              onClick={() => setManagerOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium sidebar-row pressable cursor-pointer"
-              style={{ color: 'var(--text-muted)' }}
-              title="管理工作台扩展"
-            >
-              {loadingMods ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <SlidersHorizontal size={14} />
-              )}
-              <span>管理扩展</span>
-            </button>
-          </div>
-        </div>
-
-        {tab === 'focus' && <FocusTab onToast={onToast} />}
-        {tab === 'cron' && <CronView user={user} embedded onChanged={onChanged} />}
-        {tab === 'reimbursements' && activeExtension && (
-          <ReimbursementTab onOpenVault={onOpenVault} onToast={onToast} />
-        )}
-        {tab === 'ledger' && activeExtension && <LedgerTab userId={user.id} onToast={onToast} />}
-        {activeExtension && tab !== 'reimbursements' && tab !== 'ledger' && (
-          <MicroAppHost module={activeExtension} onToast={onToast} />
+        {activeModule === null ? (
+          <WorkbenchHub
+            key="hub"
+            userId={user.id}
+            coreModules={coreModules}
+            extModules={extModules}
+            loading={loadingMods}
+            onSelectModule={(id) => select(id)}
+            onOpenManager={() => setManagerOpen(true)}
+            onOpenQuickLedger={onOpenQuickLedger}
+            onToast={onToast}
+          />
+        ) : (
+          <>
+            <WorkbenchBreadcrumb
+              modules={[...coreModules, ...enabledExtensions]}
+              activeId={activeModule}
+              loading={loadingMods}
+              onBack={() => select(null)}
+              onSelect={select}
+              onManage={() => setManagerOpen(true)}
+            />
+            <div key={activeModule} className="animate-msg-in">
+              {renderModule(activeModule)}
+            </div>
+          </>
         )}
       </div>
 
