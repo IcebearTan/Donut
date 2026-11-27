@@ -16,6 +16,7 @@ RESERVED_MODULE_IDS = {
     "modules",
     "reimbursements",
     "ledger",
+    "pomodoro",
     "apps",
     "schedule",
 }
@@ -58,6 +59,15 @@ BUILTIN_PLUGINS = [
         "name": "随手记账",
         "description": "零外发离线记账、微信/支付宝账单导入与月度消费洞察",
         "icon": "wallet",
+        "default_users": {"bear", "her"},
+        "removable": False,
+    },
+    {
+        "id": "pomodoro",
+        "kind": "builtin",
+        "name": "番茄专注",
+        "description": "每完成一次专注循环收获一颗番茄，支持书桌常亮时钟与每日收获记录",
+        "icon": "pomodoro",
         "default_users": {"bear", "her"},
         "removable": False,
     },

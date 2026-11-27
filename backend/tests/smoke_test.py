@@ -140,6 +140,45 @@ class PortalSmokeTest(unittest.TestCase):
             self.assertTrue(reimb["ok"])
             self.assertEqual(len(run_tool("reimbursement_cli.py", "list")["items"]), 1)
 
+    def test_06_pomodoro_harvest_and_isolation(self) -> None:
+        bear = self._login("bear", "pass1234")
+        her = self._login("her", "pass5678")
+
+        mods = her.get("/portal-api/workbench/modules").json()["modules"]
+        self.assertTrue(any(m["id"] == "pomodoro" and m["enabled"] for m in mods))
+
+        cfg = her.patch(
+            "/portal-api/workbench/pomodoro/settings",
+            json={"focus_minutes": 45, "short_break_minutes": 10, "daily_goal": 4},
+        )
+        self.assertEqual(cfg.status_code, 200, cfg.text)
+        self.assertEqual(cfg.json()["state"]["settings"]["focus_minutes"], 45)
+
+        rec1 = her.post(
+            "/portal-api/workbench/pomodoro/sessions",
+            json={"client_id": "cid-1", "duration_minutes": 45, "tag": "背单词", "note": "Unit 3"},
+        )
+        self.assertEqual(rec1.status_code, 200, rec1.text)
+        self.assertFalse(rec1.json()["duplicated"])
+        self.assertEqual(rec1.json()["state"]["summary"]["today_tomatoes"], 1)
+        self.assertEqual(rec1.json()["state"]["summary"]["streak_days"], 1)
+
+        # Idempotent retry should not double-harvest
+        rec2 = her.post(
+            "/portal-api/workbench/pomodoro/sessions",
+            json={"client_id": "cid-1", "duration_minutes": 45, "tag": "背单词"},
+        )
+        self.assertTrue(rec2.json()["duplicated"])
+        self.assertEqual(rec2.json()["state"]["summary"]["today_tomatoes"], 1)
+
+        # Cross-user isolation
+        bear_state = bear.get("/portal-api/workbench/pomodoro").json()
+        self.assertEqual(bear_state["summary"]["today_tomatoes"], 0)
+        sid = rec1.json()["session"]["id"]
+        self.assertEqual(bear.delete(f"/portal-api/workbench/pomodoro/sessions/{sid}").status_code, 404)
+        self.assertEqual(her.delete(f"/portal-api/workbench/pomodoro/sessions/{sid}").status_code, 200)
+        self.assertEqual(her.get("/portal-api/workbench/pomodoro").json()["summary"]["today_tomatoes"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .auth import get_current_user
 from .reimbursement_routes import router as reimbursement_router
 from .workbench_ledger_routes import router as ledger_router
+from .workbench_pomodoro_routes import router as pomodoro_router
 from .workbench_apps import (
     delete_user_app,
     get_user_app_data,
@@ -29,6 +30,7 @@ from .workbench_modules import list_workbench_modules, update_workbench_modules
 router = APIRouter(prefix="/portal-api/workbench", tags=["workbench"])
 router.include_router(reimbursement_router)
 router.include_router(ledger_router)
+router.include_router(pomodoro_router)
 
 
 class FocusExternalLinkPayload(BaseModel):
