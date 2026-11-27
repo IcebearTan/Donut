@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Menu, PanelLeftOpen } from 'lucide-react'
 import {
   api,
@@ -18,13 +18,37 @@ import { LoginView } from './components/LoginView'
 import { SessionSidebar } from './components/SessionSidebar'
 import { ChatView } from './components/ChatView'
 import { CompanionPanel, type LiveStreamState } from './components/CompanionPanel'
-import { ProjectModal } from './components/ProjectModal'
-import { PwaInstallModal } from './components/PwaInstallModal'
-import { VaultView } from './components/VaultView'
-import { WorkbenchView } from './components/WorkbenchView'
-import { ProfileSettingsView } from './components/ProfileSettingsView'
-import { QuickLedgerModal } from './components/workbench/ledger/QuickLedgerModal'
 import { PORTAL_BUILTIN_APP_IDS, usePortalRoute } from './utils/portalRoute'
+
+const ProjectModal = lazy(() =>
+  import('./components/ProjectModal').then((m) => ({ default: m.ProjectModal })),
+)
+const PwaInstallModal = lazy(() =>
+  import('./components/PwaInstallModal').then((m) => ({ default: m.PwaInstallModal })),
+)
+const VaultView = lazy(() =>
+  import('./components/VaultView').then((m) => ({ default: m.VaultView })),
+)
+const WorkbenchView = lazy(() =>
+  import('./components/WorkbenchView').then((m) => ({ default: m.WorkbenchView })),
+)
+const ProfileSettingsView = lazy(() =>
+  import('./components/ProfileSettingsView').then((m) => ({ default: m.ProfileSettingsView })),
+)
+const QuickLedgerModal = lazy(() =>
+  import('./components/workbench/ledger/QuickLedgerModal').then((m) => ({
+    default: m.QuickLedgerModal,
+  })),
+)
+
+const LazyViewFallback = (
+  <div
+    className="flex-1 flex items-center justify-center text-sm"
+    style={{ color: 'var(--text-muted)' }}
+  >
+    正在加载…
+  </div>
+)
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -1341,36 +1365,42 @@ export function App() {
             )}
           </div>
         ) : activeAppId === 'workbench' ? (
-          <WorkbenchView
-            user={user}
-            activeModule={workbenchModule}
-            onSelectModule={(moduleId) => navigateTo({ appId: 'workbench', workbenchModule: moduleId })}
-            onOpenQuickLedger={ledgerEnabled ? openQuickLedger : undefined}
-            onModulesUpdated={syncLedgerEnabled}
-            onOpenVault={() => navigateTo({ appId: 'vault' })}
-            onToast={showToast}
-            onChanged={() => refreshStatus()}
-          />
+          <Suspense fallback={LazyViewFallback}>
+            <WorkbenchView
+              user={user}
+              activeModule={workbenchModule}
+              onSelectModule={(moduleId) => navigateTo({ appId: 'workbench', workbenchModule: moduleId })}
+              onOpenQuickLedger={ledgerEnabled ? openQuickLedger : undefined}
+              onModulesUpdated={syncLedgerEnabled}
+              onOpenVault={() => navigateTo({ appId: 'vault' })}
+              onToast={showToast}
+              onChanged={() => refreshStatus()}
+            />
+          </Suspense>
         ) : activeAppId === 'vault' ? (
-          <VaultView user={user} onChanged={() => refreshStatus()} />
+          <Suspense fallback={LazyViewFallback}>
+            <VaultView user={user} onChanged={() => refreshStatus()} />
+          </Suspense>
         ) : activeAppId === 'settings' ? (
-          <ProfileSettingsView
-            user={user}
-            theme={theme}
-            initialSection={settingsSection}
-            showInstallApp={!standalone}
-            onSetTheme={setTheme}
-            onUserUpdated={(u) => {
-              setUser(u)
-              refreshStatus()
-              showToast('个人与助手设定已更新')
-            }}
-            onNavigateVault={() => navigateTo({ appId: 'vault' })}
-            onTeachInChat={() => handleSelectMainSession()}
-            onChanged={() => refreshStatus()}
-            onInstallApp={() => setPwaModalOpen(true)}
-            onLogout={handleLogout}
-          />
+          <Suspense fallback={LazyViewFallback}>
+            <ProfileSettingsView
+              user={user}
+              theme={theme}
+              initialSection={settingsSection}
+              showInstallApp={!standalone}
+              onSetTheme={setTheme}
+              onUserUpdated={(u) => {
+                setUser(u)
+                refreshStatus()
+                showToast('个人与助手设定已更新')
+              }}
+              onNavigateVault={() => navigateTo({ appId: 'vault' })}
+              onTeachInChat={() => handleSelectMainSession()}
+              onChanged={() => refreshStatus()}
+              onInstallApp={() => setPwaModalOpen(true)}
+              onLogout={handleLogout}
+            />
+          </Suspense>
         ) : (
           <div className="flex-1 flex min-w-0 min-h-0 relative">
             <ChatView
@@ -1412,70 +1442,76 @@ export function App() {
       </div>
 
       {projectModal.open && (
-        <ProjectModal
-          projectId={projectModal.projectId}
-          activeSessionId={activeSessionId}
-          activeSessionInThisProject={Boolean(
-            projectModal.projectId &&
-              activeProjectId === projectModal.projectId &&
-              activeSessionId &&
-              messages.length > 0,
-          )}
-          onSaved={(saved, created) => {
-            if (created) {
-              setProjects((prev) => [saved, ...prev])
-              navigateTo({ appId: 'donut' })
-              setActiveProjectId(saved.id)
-              setActiveSessionAndRef(null)
-              setMessages([])
-              showToast(`已创建项目「${saved.name}」`)
-            } else {
-              setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)))
-              showToast(`已保存「${saved.name}」记忆`)
-            }
-            refreshStatus()
-          }}
-          onDeleted={(deletedId) => {
-            setProjects((prev) => prev.filter((p) => p.id !== deletedId))
-            setSessions((prev) =>
-              prev.map((s) => (s.project_id === deletedId ? { ...s, project_id: null } : s)),
-            )
-            if (activeProjectId === deletedId) {
-              setActiveProjectId(null)
-            }
-            showToast('项目已归档删除（历史对话已保留）')
-            refreshStatus()
-          }}
-          onDistilled={(projName) => {
-            showToast(`已沉淀到「${projName}」记忆`)
-            refreshStatus()
-          }}
-          onClose={() => setProjectModal({ open: false, projectId: null })}
-        />
+        <Suspense fallback={null}>
+          <ProjectModal
+            projectId={projectModal.projectId}
+            activeSessionId={activeSessionId}
+            activeSessionInThisProject={Boolean(
+              projectModal.projectId &&
+                activeProjectId === projectModal.projectId &&
+                activeSessionId &&
+                messages.length > 0,
+            )}
+            onSaved={(saved, created) => {
+              if (created) {
+                setProjects((prev) => [saved, ...prev])
+                navigateTo({ appId: 'donut' })
+                setActiveProjectId(saved.id)
+                setActiveSessionAndRef(null)
+                setMessages([])
+                showToast(`已创建项目「${saved.name}」`)
+              } else {
+                setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)))
+                showToast(`已保存「${saved.name}」记忆`)
+              }
+              refreshStatus()
+            }}
+            onDeleted={(deletedId) => {
+              setProjects((prev) => prev.filter((p) => p.id !== deletedId))
+              setSessions((prev) =>
+                prev.map((s) => (s.project_id === deletedId ? { ...s, project_id: null } : s)),
+              )
+              if (activeProjectId === deletedId) {
+                setActiveProjectId(null)
+              }
+              showToast('项目已归档删除（历史对话已保留）')
+              refreshStatus()
+            }}
+            onDistilled={(projName) => {
+              showToast(`已沉淀到「${projName}」记忆`)
+              refreshStatus()
+            }}
+            onClose={() => setProjectModal({ open: false, projectId: null })}
+          />
+        </Suspense>
       )}
 
       {quickLedgerOpen && ledgerEnabled && (
-        <QuickLedgerModal
-          userId={user.id}
-          onClose={() => setQuickLedgerOpen(false)}
-          onOpenLedgerPage={() => {
-            setQuickLedgerOpen(false)
-            navigateTo({ appId: 'workbench', workbenchModule: 'ledger' })
-          }}
-          onSaved={(count) => {
-            setQuickLedgerOpen(false)
-            showToast(count > 0 ? `已记入 ${count} 笔` : '这几笔之前已经记过，没有重复保存')
-          }}
-        />
+        <Suspense fallback={null}>
+          <QuickLedgerModal
+            userId={user.id}
+            onClose={() => setQuickLedgerOpen(false)}
+            onOpenLedgerPage={() => {
+              setQuickLedgerOpen(false)
+              navigateTo({ appId: 'workbench', workbenchModule: 'ledger' })
+            }}
+            onSaved={(count) => {
+              setQuickLedgerOpen(false)
+              showToast(count > 0 ? `已记入 ${count} 笔` : '这几笔之前已经记过，没有重复保存')
+            }}
+          />
+        </Suspense>
       )}
 
       {pwaModalOpen && (
-        <PwaInstallModal
-          canNativeInstall={Boolean(deferredPrompt)}
-          isSecureOrigin={window.isSecureContext}
-          onTriggerNativeInstall={handleTriggerNativePwaInstall}
-          onClose={() => setPwaModalOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <PwaInstallModal
+            canNativeInstall={Boolean(deferredPrompt)}
+            isSecureOrigin={window.isSecureContext}
+            onTriggerNativeInstall={handleTriggerNativePwaInstall}
+            onClose={() => setPwaModalOpen(false)}
+          />
+        </Suspense>
       )}
     </div>
   )
